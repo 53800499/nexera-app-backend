@@ -1,0 +1,483 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Get a free hosted Postgres database in seconds: `npx create-db`
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+//
+// ENUMS
+//
+
+enum ClientType {
+  company
+  individual
+}
+
+enum CatalogItemType {
+  product
+  service
+  package
+}
+
+enum InvoiceType {
+  standard
+  proforma
+  deposit
+  balance
+  credit_note
+}
+
+enum InvoiceStatus {
+  draft
+  issued
+  sent
+  partial
+  paid
+  overdue
+  cancelled
+}
+
+enum QuotationStatus {
+  draft
+  sent
+  viewed
+  accepted
+  declined
+  expired
+  converted
+}
+
+enum PaymentMethod {
+  wire
+  check
+  cash
+  card
+  other
+}
+
+enum ReminderType {
+  auto
+  manual
+}
+
+enum ReminderChannel {
+  email
+  sms
+  print
+}
+
+model User {
+  id String @id @default(uuid())
+
+  tenantId String @map("tenant_id")
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  email    String @unique
+  password String
+
+  firstName String @map("first_name")
+  lastName  String @map("last_name")
+
+  isActive     Boolean @default(true)
+  isSuperAdmin Boolean @default(false)
+
+  refreshToken String? @map("refresh_token")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  roles UserRole[]
+
+  @@map("users")
+}
+
+model Role {
+  id String @id @default(uuid())
+
+  tenantId String @map("tenant_id")
+
+  name        String
+  code        String  @unique
+  description String?
+
+  createdAt DateTime @default(now())
+
+  permissions RolePermission[]
+  users       UserRole[]
+
+  @@map("roles")
+}
+
+model Permission {
+  id String @id @default(uuid())
+
+  code        String  @unique
+  description String?
+
+  createdAt DateTime @default(now())
+
+  roles RolePermission[]
+
+  @@map("permissions")
+}
+
+model UserRole {
+  id String @id @default(uuid())
+
+  userId String @map("user_id")
+  roleId String @map("role_id")
+
+  user User @relation(fields: [userId], references: [id])
+  role Role @relation(fields: [roleId], references: [id])
+
+  @@unique([userId, roleId])
+  @@map("user_roles")
+}
+
+model RolePermission {
+  id String @id @default(uuid())
+
+  roleId       String @map("role_id")
+  permissionId String @map("permission_id")
+
+  role       Role       @relation(fields: [roleId], references: [id])
+  permission Permission @relation(fields: [permissionId], references: [id])
+
+  @@unique([roleId, permissionId])
+  @@map("role_permissions")
+}
+
+model Tenant {
+  id   String @id @default(uuid())
+  name String
+
+  users User[]
+
+  createdAt DateTime @default(now())
+
+  @@map("tenants")
+}
+
+model Client {
+  id       String @id @default(uuid())
+  tenantId String @map("tenant_id")
+
+  code       String     @unique
+  clientType ClientType @map("client_type")
+
+  companyName String  @map("company_name")
+  tradeName   String? @map("trade_name")
+  siret       String?
+  taxId       String?
+  sector      String?
+
+  billingAddress  Json  @map("billing_address")
+  shippingAddress Json? @map("shipping_address")
+
+  defaultCurrency      String  @default("EUR") @map("default_currency")
+  defaultPaymentTermId String? @map("default_payment_term_id")
+
+  defaultDiscountPct Float? @default(0) @map("default_discount_pct")
+  creditLimit        Float?
+
+  notes String?
+
+  isArchived Boolean @default(false) @map("is_archived")
+  createdBy  String  @map("created_by")
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  deletedAt DateTime?
+
+  contacts Contact[]
+
+  @@map("clients")
+}
+
+model Contact {
+  id       String @id @default(uuid())
+  tenantId String @map("tenant_id")
+
+  clientId String @map("client_id")
+  client   Client @relation(fields: [clientId], references: [id])
+
+  firstName String  @map("first_name")
+  lastName  String  @map("last_name")
+  jobTitle  String?
+  email     String?
+  phone     String?
+  isPrimary Boolean @default(false) @map("is_primary")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("contacts")
+}
+
+model CatalogItem {
+  id       String @id @default(uuid())
+  tenantId String @map("tenant_id")
+
+  categoryId String? @map("category_id")
+
+  reference   String  @unique
+  name        String
+  description String?
+
+  itemType CatalogItemType @map("item_type")
+  unit     String          @default("unit")
+
+  priceHt Float @map("price_ht")
+
+  defaultTaxRateId String @map("default_tax_rate_id")
+  maxDiscountPct   Float? @map("max_discount_pct")
+
+  isArchived Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("catalog_items")
+}
+
+model TaxRate {
+  id       String @id @default(uuid())
+  tenantId String @map("tenant_id")
+
+  name String
+  rate Float
+
+  isDefault Boolean @default(false)
+  isActive  Boolean @default(true)
+
+  @@map("tax_rates")
+}
+
+model PaymentTerm {
+  id       String @id @default(uuid())
+  tenantId String @map("tenant_id")
+
+  name       String
+  days       Int
+  endOfMonth Boolean @default(false) @map("end_of_month")
+  isDefault  Boolean @default(false)
+
+  @@map("payment_terms")
+}
+
+model Quotation {
+  id       String @id @default(uuid())
+  tenantId String @map("tenant_id")
+
+  number String @unique
+
+  clientId  String  @map("client_id")
+  contactId String?
+
+  status QuotationStatus @default(draft)
+
+  issueDate  DateTime  @map("issue_date")
+  expiryDate DateTime?
+
+  currency     String @default("EUR")
+  exchangeRate Float  @default(1)
+
+  paymentTermId String?
+
+  subtotalHt     Float
+  discountPct    Float @default(0)
+  discountAmount Float @default(0)
+  baseHt         Float
+  totalTax       Float
+  totalTtc       Float
+
+  notes         String?
+  internalNotes String?
+
+  pdfUrl String?
+
+  createdBy String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  lines QuotationLine[]
+
+  @@map("quotations")
+}
+
+model QuotationLine {
+  id       String @id @default(uuid())
+  tenantId String @map("tenant_id")
+
+  quotationId String    @map("quotation_id")
+  quotation   Quotation @relation(fields: [quotationId], references: [id])
+
+  position Int
+  itemId   String?
+
+  description String
+  quantity    Float
+  unitPriceHt Float  @map("unit_price_ht")
+
+  discountPct    Float @default(0)
+  discountAmount Float @default(0)
+
+  lineTotalHt Float
+  taxRateId   String
+
+  taxAmount    Float
+  lineTotalTtc Float
+
+  @@map("quotation_lines")
+}
+
+model Invoice {
+  id       String @id @default(uuid())
+  tenantId String @map("tenant_id")
+
+  number      String        @unique
+  invoiceType InvoiceType   @default(standard)
+  status      InvoiceStatus @default(draft)
+
+  clientId          String  @map("client_id")
+  contactId         String?
+  orderId           String?
+  quotationId       String?
+  originalInvoiceId String?
+
+  issueDate DateTime
+  dueDate   DateTime?
+
+  currency     String @default("EUR")
+  exchangeRate Float  @default(1)
+
+  paymentTermId String?
+
+  subtotalHt     Float
+  discountPct    Float @default(0)
+  discountAmount Float @default(0)
+  baseHt         Float
+  totalTax       Float
+  totalTtc       Float
+
+  amountPaid Float @default(0)
+  amountDue  Float @default(0)
+
+  depositAmount Float?
+
+  notes         String?
+  internalNotes String?
+  pdfUrl        String?
+
+  sentAt      DateTime?
+  paidAt      DateTime?
+  cancelledAt DateTime?
+
+  createdBy String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  lines    InvoiceLine[]
+  payments PaymentImputation[]
+
+  @@map("invoices")
+}
+
+model InvoiceLine {
+  id       String @id @default(uuid())
+  tenantId String @map("tenant_id")
+
+  invoiceId String  @map("invoice_id")
+  invoice   Invoice @relation(fields: [invoiceId], references: [id])
+
+  position Int
+  itemId   String?
+
+  description String
+  quantity    Float
+  unitPriceHt Float
+
+  discountPct    Float @default(0)
+  discountAmount Float @default(0)
+
+  lineTotalHt  Float
+  taxRateId    String
+  taxAmount    Float
+  lineTotalTtc Float
+
+  @@map("invoice_lines")
+}
+
+model Payment {
+  id       String @id @default(uuid())
+  tenantId String @map("tenant_id")
+
+  clientId String @map("client_id")
+
+  reference   String?
+  paymentDate DateTime
+  amount      Float
+
+  currency      String        @default("EUR")
+  paymentMethod PaymentMethod @map("payment_method")
+
+  notes       String?
+  isCancelled Boolean @default(false)
+
+  cancelledAt  DateTime?
+  cancelReason String?
+
+  createdBy String
+  createdAt DateTime @default(now())
+
+  imputations PaymentImputation[]
+
+  @@map("payments")
+}
+
+model PaymentImputation {
+  id       String @id @default(uuid())
+  tenantId String @map("tenant_id")
+
+  paymentId String  @map("payment_id")
+  payment   Payment @relation(fields: [paymentId], references: [id])
+
+  invoiceId String  @map("invoice_id")
+  invoice   Invoice @relation(fields: [invoiceId], references: [id])
+
+  amount Float
+
+  createdAt DateTime @default(now())
+
+  @@map("payment_imputations")
+}
+
+model Reminder {
+  id       String @id @default(uuid())
+  tenantId String @map("tenant_id")
+
+  invoiceId String @map("invoice_id")
+
+  level   Int
+  type    ReminderType
+  channel ReminderChannel
+
+  sentAt       DateTime
+  emailTo      String?
+  bodySnapshot String?
+
+  createdBy String?
+
+  createdAt DateTime @default(now())
+
+  @@map("reminders")
+}
