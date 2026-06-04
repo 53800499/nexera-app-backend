@@ -28,7 +28,12 @@ export class RegisterDto {
   @MaxLength(100)
   lastName: string;
 
+  @IsOptional()
   @IsUUID()
-  @IsNotEmpty()
-  tenantId: string;
+  tenantId?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  tenantName?: string;
 }

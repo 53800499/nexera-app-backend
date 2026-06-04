@@ -13,6 +13,29 @@ import { JwtPayload } from '../../shared/interfaces/jwt-payload.interface';
 
 @Injectable()
 export class AuthService {
+  private readonly defaultPermissions = [
+    { code: 'users.read', description: 'View users' },
+    { code: 'users.write', description: 'Manage users' },
+    { code: 'roles.read', description: 'View roles' },
+    { code: 'roles.write', description: 'Manage roles' },
+    { code: 'permissions.read', description: 'View permissions' },
+    { code: 'permissions.write', description: 'Manage permissions' },
+    { code: 'clients.read', description: 'View clients' },
+    { code: 'clients.write', description: 'Manage clients' },
+    { code: 'quotations.read', description: 'View quotations' },
+    { code: 'quotations.write', description: 'Manage quotations' },
+    { code: 'manage:users', description: 'Manage users (API guard)' },
+    { code: 'manage:roles', description: 'Manage roles (API guard)' },
+    { code: 'manage:permissions', description: 'Manage permissions (API guard)' },
+    { code: 'manage:tenants', description: 'Manage tenants (API guard)' },
+    { code: 'manage:clients', description: 'Manage clients (API guard)' },
+    { code: 'manage:quotations', description: 'Manage quotations (API guard)' },
+  ];
+
+  private readonly defaultRoles = [
+    { code: 'ADMIN', name: 'Admin', description: 'Tenant administrator' },
+    { code: 'CEO', name: 'CEO', description: 'Founder / CEO' },
+  ];
   constructor(
     private prisma: PrismaService,
     private jwt: JwtService,
@@ -20,7 +43,7 @@ export class AuthService {
   ) {}
 
   async register(dto: RegisterDto) {
-    const { email, password, firstName, lastName, tenantId } = dto;
+    const { email, password, firstName, lastName, tenantId, tenantName } = dto;
 
     const existingUser = await this.prisma.user.findUnique({
       where: { email },
@@ -30,34 +53,56 @@ export class AuthService {
       throw new BadRequestException('User already exists');
     }
 
-    const tenant = await this.prisma.tenant.findUnique({
-      where: { id: tenantId },
-    });
+    const tenantNameValue = tenantName?.trim();
 
-    if (!tenant) {
-      throw new BadRequestException('Tenant not found');
-    }
+    let tenant = tenantId
+      ? await this.prisma.tenant.findUnique({ where: { id: tenantId } })
+      : null;
 
-    let role = await this.prisma.role.findFirst({
-      where: {
-        tenantId,
-        code: 'OWNER',
-      },
-    });
-
-    if (!role) {
-      role = await this.prisma.role.create({
-        data: {
-          name: 'Owner',
-          code: 'OWNER',
-          description: 'Default tenant owner role',
-          tenantId,
-        },
+    if (!tenant && tenantNameValue) {
+      tenant = await this.prisma.tenant.findFirst({
+        where: { name: tenantNameValue },
       });
     }
 
+    if (!tenant) {
+      if (!tenantNameValue) {
+        throw new BadRequestException('Tenant name is required');
+      }
+
+      tenant = await this.prisma.tenant.create({
+        data: { name: tenantNameValue },
+      });
+    }
+
+    await this.seedDefaultRolesAndPermissions(tenant.id);
+
+    const roles = await Promise.all(
+      this.defaultRoles.map(async (roleDefinition) => {
+        let role = await this.prisma.role.findFirst({
+          where: {
+            tenantId: tenant.id,
+            code: roleDefinition.code,
+          },
+        });
+
+        if (!role) {
+          role = await this.prisma.role.create({
+            data: {
+              name: roleDefinition.name,
+              code: roleDefinition.code,
+              description: roleDefinition.description,
+              tenantId: tenant.id,
+            },
+          });
+        }
+
+        return role;
+      }),
+    );
+
     const firstTenantUser = await this.prisma.user.findFirst({
-      where: { tenantId },
+      where: { tenantId: tenant.id },
     });
 
     const hashedPassword = await bcrypt.hash(password, 10);
@@ -68,7 +113,7 @@ export class AuthService {
         password: hashedPassword,
         firstName,
         lastName,
-        tenantId,
+        tenantId: tenant.id,
         isActive: true,
         isSuperAdmin: !firstTenantUser,
       },
@@ -89,12 +134,16 @@ export class AuthService {
       },
     });
 
-    await this.prisma.userRole.create({
-      data: {
-        userId: user.id,
-        roleId: role.id,
-      },
-    });
+    await Promise.all(
+      roles.map((role) =>
+        this.prisma.userRole.create({
+          data: {
+            userId: user.id,
+            roleId: role.id,
+          },
+        }),
+      ),
+    );
 
     const userWithRole = await this.prisma.user.findUnique({
       where: { id: user.id },
@@ -116,6 +165,56 @@ export class AuthService {
     });
 
     return this.generateTokens(userWithRole);
+  }
+
+  private async seedDefaultRolesAndPermissions(tenantId: string) {
+    for (const permission of this.defaultPermissions) {
+      const existingPermission = await this.prisma.permission.findUnique({
+        where: { code: permission.code },
+      });
+
+      if (!existingPermission) {
+        await this.prisma.permission.create({
+          data: permission,
+        });
+      }
+    }
+
+    const permissions = await this.prisma.permission.findMany({
+      where: {
+        code: {
+          in: this.defaultPermissions.map((permission) => permission.code),
+        },
+      },
+    });
+
+    for (const roleDefinition of this.defaultRoles) {
+      let role = await this.prisma.role.findFirst({
+        where: {
+          tenantId,
+          code: roleDefinition.code,
+        },
+      });
+
+      if (!role) {
+        role = await this.prisma.role.create({
+          data: {
+            name: roleDefinition.name,
+            code: roleDefinition.code,
+            description: roleDefinition.description,
+            tenantId,
+          },
+        });
+      }
+
+      await this.prisma.rolePermission.createMany({
+        data: permissions.map((permission) => ({
+          roleId: role.id,
+          permissionId: permission.id,
+        })),
+        skipDuplicates: true,
+      });
+    }
   }
 
   async validateUser(dto: LoginDto) {

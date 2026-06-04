@@ -8,10 +8,19 @@ import { PrismaService } from '../../infrastructure/database/prisma.service';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { AssignRolesDto } from './dto/assign-role.dto';
+import { UserEventBus } from './events/user-event-bus';
+import { UserCreatedEvent } from './events/user-created.event';
+import { UserUpdatedEvent } from './events/user-updated.event';
+import { UserStatusChangedEvent } from './events/user-status-changed.event';
+import { UserRolesAssignedEvent } from './events/user-roles-assigned.event';
+import { UserEntity } from './entities/user.entity';
 
 @Injectable()
 export class UsersService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private readonly userEventBus: UserEventBus,
+  ) {}
 
   private userInclude = {
     tenant: true,
@@ -63,6 +72,10 @@ export class UsersService {
       },
       include: this.userInclude,
     });
+
+    this.userEventBus.publish(
+      new UserCreatedEvent(UserEntity.fromPrisma(user)),
+    );
 
     if (dto.roleIds?.length) {
       await this.assignRolesInternal(user.id, dto.roleIds, targetTenantId);
@@ -117,13 +130,19 @@ export class UsersService {
       data.password = await bcrypt.hash(dto.password, 10);
     }
 
-    Object.keys(data).forEach((key) => data[key] === undefined && delete data[key]);
+    Object.keys(data).forEach(
+      (key) => data[key] === undefined && delete data[key],
+    );
 
     const updated = await this.prisma.user.update({
       where: { id },
       data,
       include: this.userInclude,
     });
+
+    this.userEventBus.publish(
+      new UserUpdatedEvent(UserEntity.fromPrisma(updated)),
+    );
 
     return updated;
   }
@@ -136,6 +155,13 @@ export class UsersService {
       data: { isActive: false },
     });
 
+    this.userEventBus.publish(
+      new UserStatusChangedEvent(
+        UserEntity.fromPrisma({ ...user, isActive: false }),
+        false,
+      ),
+    );
+
     return {
       message: 'User disabled successfully',
       userId: user.id,
@@ -146,20 +172,39 @@ export class UsersService {
   async toggleStatus(id: string, tenantId: string, isActive: boolean) {
     const user = await this.findOne(id, tenantId);
 
-    return this.prisma.user.update({
+    const updated = await this.prisma.user.update({
       where: { id },
       data: { isActive },
       include: this.userInclude,
     });
+
+    this.userEventBus.publish(
+      new UserStatusChangedEvent(UserEntity.fromPrisma(updated), isActive),
+    );
+
+    return updated;
   }
 
   async assignRoles(id: string, tenantId: string, dto: AssignRolesDto) {
     await this.findOne(id, tenantId);
     await this.assignRolesInternal(id, dto.roleIds, tenantId);
-    return this.findOne(id, tenantId);
+
+    const updatedUser = await this.findOne(id, tenantId);
+    this.userEventBus.publish(
+      new UserRolesAssignedEvent(
+        UserEntity.fromPrisma(updatedUser),
+        dto.roleIds,
+      ),
+    );
+
+    return updatedUser;
   }
 
-  private async assignRolesInternal(userId: string, roleIds: string[], tenantId: string) {
+  private async assignRolesInternal(
+    userId: string,
+    roleIds: string[],
+    tenantId: string,
+  ) {
     for (const roleId of roleIds) {
       const role = await this.prisma.role.findFirst({
         where: { id: roleId, tenantId },

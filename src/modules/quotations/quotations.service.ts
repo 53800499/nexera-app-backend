@@ -1,0 +1,855 @@
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
+import { Prisma } from '@prisma/client';
+import { PrismaService } from '../../infrastructure/database/prisma.service';
+import { CreateQuotationDto } from './dto/create-quotation.dto';
+import { UpdateQuotationDto } from './dto/update-quotation.dto';
+import { SendQuotationDto } from './dto/send-quotation.dto';
+import {
+  ConvertQuotationDto,
+  ConvertQuotationTarget,
+} from './dto/convert-quotation.dto';
+import { ChangeQuotationStatusDto } from './dto/change-quotation-status.dto';
+import { QuotationLineDto } from './dto/quotation-line.dto';
+import {
+  EDITABLE_QUOTATION_STATUSES,
+  QuotationStatus,
+} from './enums/quotation-status.enum';
+import { computeLine, computeTotals } from './utils/quotation-calculator';
+import { QuotationEventBus } from './events/quotation-event-bus';
+import { QuotationEntity } from './entities/quotation.entity';
+import { QuotationCreatedEvent } from './events/quotation-created.event';
+import { QuotationUpdatedEvent } from './events/quotation-updated.event';
+import { QuotationDeletedEvent } from './events/quotation-deleted.event';
+import { QuotationSentEvent } from './events/quotation-sent.event';
+import { QuotationStatusChangedEvent } from './events/quotation-status-changed.event';
+import { QuotationConvertedEvent } from './events/quotation-converted.event';
+import { QuotationPdfService } from './services/quotation-pdf.service';
+import {
+  QuotationMailService,
+  SendQuotationMailResult,
+} from './services/quotation-mail.service';
+
+type ResolvedLine = {
+  position: number;
+  itemId?: string;
+  description: string;
+  quantity: number;
+  unitPriceHt: number;
+  discountPct: number;
+  discountAmount: number;
+  taxRateId: string;
+  lineTotalHt: number;
+  taxAmount: number;
+  lineTotalTtc: number;
+};
+
+@Injectable()
+export class QuotationsService {
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly quotationEventBus: QuotationEventBus,
+    private readonly quotationPdfService: QuotationPdfService,
+    private readonly quotationMailService: QuotationMailService,
+  ) {}
+
+  private readonly quotationInclude = {
+    client: true,
+    contact: true,
+    paymentTerm: true,
+    lines: {
+      orderBy: { position: 'asc' as const },
+      include: { item: true, taxRate: true },
+    },
+  };
+
+  async create(dto: CreateQuotationDto, tenantId: string, createdBy: string) {
+    await this.assertClient(tenantId, dto.clientId);
+    await this.assertContact(tenantId, dto.clientId, dto.contactId);
+    await this.assertPaymentTerm(tenantId, dto.paymentTermId);
+
+    const resolvedLines = await this.resolveLines(tenantId, dto.lines);
+    const totals = computeTotals(
+      resolvedLines,
+      dto.discountPct ?? 0,
+      dto.discountAmount ?? 0,
+    );
+    const number = await this.generateNumber(tenantId, 'DEV');
+
+    const quotation = await this.prisma.quotation.create({
+      data: {
+        tenantId,
+        number,
+        clientId: dto.clientId,
+        contactId: dto.contactId,
+        status: QuotationStatus.DRAFT,
+        issueDate: new Date(dto.issueDate),
+        expiryDate: dto.expiryDate ? new Date(dto.expiryDate) : null,
+        currency: dto.currency ?? 'EUR',
+        exchangeRate: dto.exchangeRate ?? 1,
+        paymentTermId: dto.paymentTermId,
+        subtotalHt: totals.subtotalHt,
+        discountPct: totals.discountPct,
+        discountAmount: totals.discountAmount,
+        baseHt: totals.baseHt,
+        totalTax: totals.totalTax,
+        totalTtc: totals.totalTtc,
+        notes: dto.notes,
+        internalNotes: dto.internalNotes,
+        createdBy,
+        lines: {
+          create: resolvedLines.map((line) => ({
+            tenantId,
+            position: line.position,
+            itemId: line.itemId,
+            description: line.description,
+            quantity: line.quantity,
+            unitPriceHt: line.unitPriceHt,
+            discountPct: line.discountPct,
+            discountAmount: line.discountAmount,
+            lineTotalHt: line.lineTotalHt,
+            taxRateId: line.taxRateId,
+            taxAmount: line.taxAmount,
+            lineTotalTtc: line.lineTotalTtc,
+          })),
+        },
+      },
+      include: this.quotationInclude,
+    });
+
+    this.quotationEventBus.publish(
+      new QuotationCreatedEvent(QuotationEntity.fromPrisma(quotation)),
+    );
+
+    return quotation;
+  }
+
+  async findAll(
+    tenantId: string,
+    page = 1,
+    limit = 20,
+    status?: QuotationStatus,
+    clientId?: string,
+    q?: string,
+  ) {
+    await this.expireStaleQuotations(tenantId);
+
+    const where: Prisma.QuotationWhereInput = { tenantId };
+
+    if (status) where.status = status;
+    if (clientId) where.clientId = clientId;
+    if (q) {
+      where.OR = [
+        { number: { contains: q, mode: 'insensitive' } },
+        { client: { companyName: { contains: q, mode: 'insensitive' } } },
+      ];
+    }
+
+    const [items, total] = await this.prisma.$transaction([
+      this.prisma.quotation.findMany({
+        where,
+        include: this.quotationInclude,
+        orderBy: { createdAt: 'desc' },
+        skip: (page - 1) * limit,
+        take: limit,
+      }),
+      this.prisma.quotation.count({ where }),
+    ]);
+
+    return {
+      items,
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit),
+    };
+  }
+
+  async findOne(id: string, tenantId: string) {
+    await this.expireStaleQuotations(tenantId);
+    const quotation = await this.prisma.quotation.findFirst({
+      where: { id, tenantId },
+      include: this.quotationInclude,
+    });
+
+    if (!quotation) {
+      throw new NotFoundException('Quotation not found');
+    }
+
+    return quotation;
+  }
+
+  async update(id: string, tenantId: string, dto: UpdateQuotationDto) {
+    const existing = await this.findOne(id, tenantId);
+
+    if (
+      !EDITABLE_QUOTATION_STATUSES.includes(existing.status as QuotationStatus)
+    ) {
+      throw new BadRequestException(
+        'Quotation cannot be modified in its current status',
+      );
+    }
+
+    await this.assertContact(tenantId, existing.clientId, dto.contactId);
+    await this.assertPaymentTerm(tenantId, dto.paymentTermId);
+
+    const lines = dto.lines
+      ? await this.resolveLines(tenantId, dto.lines)
+      : existing.lines.map((line, index) => ({
+          position: index + 1,
+          itemId: line.itemId ?? undefined,
+          description: line.description,
+          quantity: line.quantity,
+          unitPriceHt: line.unitPriceHt,
+          discountPct: line.discountPct,
+          discountAmount: line.discountAmount,
+          taxRateId: line.taxRateId,
+          lineTotalHt: line.lineTotalHt,
+          taxAmount: line.taxAmount,
+          lineTotalTtc: line.lineTotalTtc,
+        }));
+
+    const discountPct = dto.discountPct ?? existing.discountPct;
+    const discountAmount = dto.discountAmount ?? existing.discountAmount;
+    const totals = computeTotals(lines, discountPct, discountAmount);
+
+    let internalNotes = dto.internalNotes ?? existing.internalNotes;
+    if (existing.status === QuotationStatus.SENT && existing.pdfUrl) {
+      const archiveNote = `[archived ${new Date().toISOString()}] previous PDF: ${existing.pdfUrl}`;
+      internalNotes = internalNotes
+        ? `${internalNotes}\n${archiveNote}`
+        : archiveNote;
+    }
+
+    const updated = await this.prisma.$transaction(async (tx) => {
+      if (dto.lines) {
+        await tx.quotationLine.deleteMany({ where: { quotationId: id } });
+      }
+
+      return tx.quotation.update({
+        where: { id },
+        data: {
+          contactId: dto.contactId,
+          issueDate: dto.issueDate ? new Date(dto.issueDate) : undefined,
+          expiryDate:
+            dto.expiryDate === undefined
+              ? undefined
+              : dto.expiryDate
+                ? new Date(dto.expiryDate)
+                : null,
+          currency: dto.currency,
+          exchangeRate: dto.exchangeRate,
+          paymentTermId: dto.paymentTermId,
+          subtotalHt: totals.subtotalHt,
+          discountPct: totals.discountPct,
+          discountAmount: totals.discountAmount,
+          baseHt: totals.baseHt,
+          totalTax: totals.totalTax,
+          totalTtc: totals.totalTtc,
+          notes: dto.notes,
+          internalNotes,
+          pdfUrl: existing.status === QuotationStatus.SENT ? null : undefined,
+          ...(dto.lines
+            ? {
+                lines: {
+                  create: lines.map((line) => ({
+                    tenantId,
+                    position: line.position,
+                    itemId: line.itemId,
+                    description: line.description,
+                    quantity: line.quantity,
+                    unitPriceHt: line.unitPriceHt,
+                    discountPct: line.discountPct,
+                    discountAmount: line.discountAmount,
+                    lineTotalHt: line.lineTotalHt,
+                    taxRateId: line.taxRateId,
+                    taxAmount: line.taxAmount,
+                    lineTotalTtc: line.lineTotalTtc,
+                  })),
+                },
+              }
+            : {}),
+        },
+        include: this.quotationInclude,
+      });
+    });
+
+    this.quotationEventBus.publish(
+      new QuotationUpdatedEvent(QuotationEntity.fromPrisma(updated)),
+    );
+
+    return updated;
+  }
+
+  async remove(id: string, tenantId: string) {
+    const quotation = await this.findOne(id, tenantId);
+
+    if (quotation.status !== QuotationStatus.DRAFT) {
+      throw new BadRequestException('Only draft quotations can be deleted');
+    }
+
+    await this.prisma.quotationLine.deleteMany({ where: { quotationId: id } });
+    await this.prisma.quotation.delete({ where: { id } });
+
+    this.quotationEventBus.publish(
+      new QuotationDeletedEvent(QuotationEntity.fromPrisma(quotation)),
+    );
+
+    return { message: 'Quotation deleted successfully', quotationId: id };
+  }
+
+  async send(id: string, tenantId: string, dto: SendQuotationDto) {
+    const quotation = await this.findOne(id, tenantId);
+
+    if (quotation.status !== QuotationStatus.DRAFT) {
+      throw new BadRequestException('Only draft quotations can be sent');
+    }
+
+    const pdfUrl = this.quotationPdfService.getPublicUrl(id);
+    await this.ensurePdfGenerated(quotation);
+
+    const recipientEmail = await this.resolveRecipientEmail(
+      quotation,
+      dto.recipientEmail,
+    );
+
+    let mailResult: SendQuotationMailResult = {
+      sent: false,
+      reason: 'no_recipient',
+    };
+    if (recipientEmail) {
+      const buffer = await this.quotationPdfService.read(tenantId, id);
+      if (buffer) {
+        mailResult = await this.quotationMailService.send({
+          to: recipientEmail,
+          subject: `Devis ${quotation.number}`,
+          text:
+            dto.message ??
+            `Veuillez trouver ci-joint le devis ${quotation.number}.`,
+          pdf: buffer,
+          filename: `${quotation.number}.pdf`,
+        });
+      }
+    }
+
+    const updated = await this.prisma.quotation.update({
+      where: { id },
+      data: {
+        status: QuotationStatus.SENT,
+        pdfUrl,
+      },
+      include: this.quotationInclude,
+    });
+
+    this.quotationEventBus.publish(
+      new QuotationSentEvent(
+        QuotationEntity.fromPrisma(updated),
+        recipientEmail,
+      ),
+    );
+
+    return {
+      quotation: updated,
+      message: 'Quotation marked as sent',
+      recipientEmail,
+      pdfUrl,
+      email: mailResult,
+    };
+  }
+
+  async preview(id: string, tenantId: string) {
+    const quotation = await this.findOne(id, tenantId);
+    await this.ensurePdfGenerated(quotation);
+    const pdfUrl =
+      quotation.pdfUrl ?? this.quotationPdfService.getPublicUrl(id);
+
+    return {
+      quotation,
+      pdfUrl,
+      previewReady: true,
+    };
+  }
+
+  async getPdf(id: string, tenantId: string) {
+    const quotation = await this.findOne(id, tenantId);
+    await this.ensurePdfGenerated(quotation);
+
+    const buffer = await this.quotationPdfService.read(tenantId, id);
+    if (!buffer) {
+      throw new NotFoundException('PDF not found for this quotation');
+    }
+
+    return {
+      buffer,
+      filename: `${quotation.number}.pdf`,
+    };
+  }
+
+  async changeStatus(
+    id: string,
+    tenantId: string,
+    dto: ChangeQuotationStatusDto,
+  ) {
+    const quotation = await this.findOne(id, tenantId);
+    const previousStatus = quotation.status as QuotationStatus;
+
+    this.assertStatusTransition(previousStatus, dto.status);
+
+    const updated = await this.prisma.quotation.update({
+      where: { id },
+      data: { status: dto.status },
+      include: this.quotationInclude,
+    });
+
+    this.quotationEventBus.publish(
+      new QuotationStatusChangedEvent(
+        QuotationEntity.fromPrisma(updated),
+        previousStatus,
+        dto.status,
+      ),
+    );
+
+    return updated;
+  }
+
+  async convert(
+    id: string,
+    tenantId: string,
+    dto: ConvertQuotationDto,
+    createdBy: string,
+  ) {
+    const quotation = await this.findOne(id, tenantId);
+
+    if (quotation.status !== QuotationStatus.ACCEPTED) {
+      throw new BadRequestException(
+        'Only accepted quotations can be converted',
+      );
+    }
+
+    const result = await this.prisma.$transaction(async (tx) => {
+      if (dto.target === ConvertQuotationTarget.ORDER) {
+        const number = await this.generateDocumentNumberInTx(
+          tx,
+          tenantId,
+          'BC',
+          'order',
+        );
+        const order = await tx.order.create({
+          data: {
+            tenantId,
+            number,
+            clientId: quotation.clientId,
+            quotationId: quotation.id,
+            status: 'draft',
+            issueDate: quotation.issueDate,
+            currency: quotation.currency,
+            subtotalHt: quotation.subtotalHt,
+            discountPct: quotation.discountPct,
+            discountAmount: quotation.discountAmount,
+            baseHt: quotation.baseHt,
+            totalTax: quotation.totalTax,
+            totalTtc: quotation.totalTtc,
+            createdBy,
+            lines: {
+              create: quotation.lines.map((line, index) => ({
+                tenantId,
+                position: index + 1,
+                itemId: line.itemId,
+                description: line.description,
+                quantity: line.quantity,
+                unitPriceHt: line.unitPriceHt,
+                discountPct: line.discountPct,
+                discountAmount: line.discountAmount,
+                lineTotalHt: line.lineTotalHt,
+                taxRateId: line.taxRateId,
+                taxAmount: line.taxAmount,
+                lineTotalTtc: line.lineTotalTtc,
+              })),
+            },
+          },
+        });
+
+        await tx.quotation.update({
+          where: { id },
+          data: { status: QuotationStatus.CONVERTED },
+        });
+
+        return { target: dto.target, targetId: order.id, document: order };
+      }
+
+      const number = await this.generateDocumentNumberInTx(
+        tx,
+        tenantId,
+        'FAC',
+        'invoice',
+      );
+      const invoice = await tx.invoice.create({
+        data: {
+          tenantId,
+          number,
+          clientId: quotation.clientId,
+          contactId: quotation.contactId,
+          quotationId: quotation.id,
+          status: 'draft',
+          issueDate: quotation.issueDate,
+          dueDate: quotation.expiryDate,
+          currency: quotation.currency,
+          exchangeRate: quotation.exchangeRate,
+          paymentTermId: quotation.paymentTermId,
+          subtotalHt: quotation.subtotalHt,
+          discountPct: quotation.discountPct,
+          discountAmount: quotation.discountAmount,
+          baseHt: quotation.baseHt,
+          totalTax: quotation.totalTax,
+          totalTtc: quotation.totalTtc,
+          amountPaid: 0,
+          amountDue: quotation.totalTtc,
+          notes: quotation.notes,
+          internalNotes: quotation.internalNotes,
+          createdBy,
+          lines: {
+            create: quotation.lines.map((line, index) => ({
+              tenantId,
+              position: index + 1,
+              itemId: line.itemId,
+              description: line.description,
+              quantity: line.quantity,
+              unitPriceHt: line.unitPriceHt,
+              discountPct: line.discountPct,
+              discountAmount: line.discountAmount,
+              lineTotalHt: line.lineTotalHt,
+              taxRateId: line.taxRateId,
+              taxAmount: line.taxAmount,
+              lineTotalTtc: line.lineTotalTtc,
+            })),
+          },
+        },
+      });
+
+      await tx.quotation.update({
+        where: { id },
+        data: { status: QuotationStatus.CONVERTED },
+      });
+
+      return { target: dto.target, targetId: invoice.id, document: invoice };
+    });
+
+    const refreshed = await this.findOne(id, tenantId);
+
+    this.quotationEventBus.publish(
+      new QuotationConvertedEvent(
+        QuotationEntity.fromPrisma(refreshed),
+        dto.target,
+        result.targetId,
+      ),
+    );
+
+    return result;
+  }
+
+  private async resolveLines(
+    tenantId: string,
+    lines: QuotationLineDto[],
+  ): Promise<ResolvedLine[]> {
+    return Promise.all(
+      lines.map(async (line, index) => {
+        const taxRate = await this.prisma.taxRate.findFirst({
+          where: { id: line.taxRateId, tenantId, isActive: true },
+        });
+
+        if (!taxRate) {
+          throw new BadRequestException(
+            `Tax rate not found: ${line.taxRateId}`,
+          );
+        }
+
+        if (line.itemId) {
+          const item = await this.prisma.catalogItem.findFirst({
+            where: { id: line.itemId, tenantId, isArchived: false },
+          });
+
+          if (!item) {
+            throw new BadRequestException(
+              `Catalog item not found: ${line.itemId}`,
+            );
+          }
+
+          const maxDiscount = item.maxDiscountPct ?? 0;
+          if (maxDiscount > 0 && (line.discountPct ?? 0) > maxDiscount) {
+            throw new BadRequestException(
+              `Discount exceeds maximum allowed for item ${item.reference}`,
+            );
+          }
+        }
+
+        const computed = computeLine({
+          quantity: line.quantity,
+          unitPriceHt: line.unitPriceHt,
+          discountPct: line.discountPct,
+          discountAmount: line.discountAmount,
+          taxRate: taxRate.rate,
+        });
+
+        return {
+          position: index + 1,
+          itemId: line.itemId,
+          description: line.description,
+          quantity: line.quantity,
+          unitPriceHt: line.unitPriceHt,
+          discountPct: line.discountPct ?? 0,
+          discountAmount: line.discountAmount ?? 0,
+          taxRateId: line.taxRateId,
+          ...computed,
+        };
+      }),
+    );
+  }
+
+  private assertStatusTransition(
+    current: QuotationStatus,
+    next: QuotationStatus,
+  ) {
+    const allowed: Partial<Record<QuotationStatus, QuotationStatus[]>> = {
+      [QuotationStatus.SENT]: [
+        QuotationStatus.VIEWED,
+        QuotationStatus.ACCEPTED,
+        QuotationStatus.DECLINED,
+      ],
+      [QuotationStatus.VIEWED]: [
+        QuotationStatus.ACCEPTED,
+        QuotationStatus.DECLINED,
+      ],
+    };
+
+    const permitted = allowed[current] ?? [];
+    if (!permitted.includes(next)) {
+      throw new BadRequestException(
+        `Cannot change status from ${current} to ${next}`,
+      );
+    }
+  }
+
+  private async ensurePdfGenerated(quotation: {
+    id: string;
+    tenantId: string;
+    number: string;
+    issueDate: Date;
+    expiryDate: Date | null;
+    currency: string;
+    subtotalHt: number;
+    discountPct: number;
+    discountAmount: number;
+    baseHt: number;
+    totalTax: number;
+    totalTtc: number;
+    notes: string | null;
+    client: { companyName: string; code: string };
+    contact?: {
+      firstName: string;
+      lastName: string;
+      email?: string | null;
+    } | null;
+    lines: Array<{
+      position: number;
+      description: string;
+      quantity: number;
+      unitPriceHt: number;
+      lineTotalHt: number;
+      taxAmount: number;
+      lineTotalTtc: number;
+      taxRate?: { name: string; rate: number };
+    }>;
+    pdfUrl?: string | null;
+  }) {
+    const existing = await this.quotationPdfService.read(
+      quotation.tenantId,
+      quotation.id,
+    );
+    if (existing) return;
+
+    const buffer = await this.quotationPdfService.generate(quotation);
+    await this.quotationPdfService.save(
+      quotation.tenantId,
+      quotation.id,
+      buffer,
+    );
+
+    const pdfUrl = this.quotationPdfService.getPublicUrl(quotation.id);
+    if (quotation.pdfUrl !== pdfUrl) {
+      await this.prisma.quotation.update({
+        where: { id: quotation.id },
+        data: { pdfUrl },
+      });
+    }
+  }
+
+  private async resolveRecipientEmail(
+    quotation: {
+      contact?: { email?: string | null } | null;
+      clientId: string;
+      tenantId: string;
+    },
+    explicit?: string,
+  ) {
+    if (explicit?.trim()) return explicit.trim();
+
+    if (quotation.contact?.email?.trim()) {
+      return quotation.contact.email.trim();
+    }
+
+    const primaryContact = await this.prisma.contact.findFirst({
+      where: {
+        tenantId: quotation.tenantId,
+        clientId: quotation.clientId,
+        email: { not: null },
+      },
+      orderBy: [{ isPrimary: 'desc' }, { createdAt: 'asc' }],
+    });
+
+    return primaryContact?.email?.trim();
+  }
+
+  private async assertClient(tenantId: string, clientId: string) {
+    const client = await this.prisma.client.findFirst({
+      where: { id: clientId, tenantId, deletedAt: null },
+    });
+
+    if (!client) {
+      throw new BadRequestException('Client not found for this tenant');
+    }
+  }
+
+  private async assertContact(
+    tenantId: string,
+    clientId: string,
+    contactId?: string,
+  ) {
+    if (!contactId) return;
+
+    const contact = await this.prisma.contact.findFirst({
+      where: { id: contactId, tenantId, clientId },
+    });
+
+    if (!contact) {
+      throw new BadRequestException('Contact not found for this client');
+    }
+  }
+
+  private async assertPaymentTerm(tenantId: string, paymentTermId?: string) {
+    if (!paymentTermId) return;
+
+    const term = await this.prisma.paymentTerm.findFirst({
+      where: { id: paymentTermId, tenantId },
+    });
+
+    if (!term) {
+      throw new BadRequestException('Payment term not found');
+    }
+  }
+
+  private async expireStaleQuotations(tenantId: string) {
+    await this.prisma.quotation.updateMany({
+      where: {
+        tenantId,
+        status: { in: [QuotationStatus.SENT, QuotationStatus.VIEWED] },
+        expiryDate: { lt: new Date() },
+      },
+      data: { status: QuotationStatus.EXPIRED },
+    });
+  }
+
+  private async generateNumber(tenantId: string, prefix: string) {
+    return this.generateDocumentNumberInTx(
+      this.prisma,
+      tenantId,
+      prefix,
+      'quotation',
+    );
+  }
+
+  private async generateDocumentNumberInTx(
+    tx: Prisma.TransactionClient | PrismaService,
+    tenantId: string,
+    prefix: string,
+    kind: 'quotation' | 'order' | 'invoice',
+  ) {
+    const year = new Date().getFullYear();
+    const pattern = `${prefix}-${year}-`;
+
+    const latestNumber = await this.findLatestNumber(
+      tx,
+      tenantId,
+      pattern,
+      kind,
+    );
+
+    let seq = 1;
+    if (latestNumber) {
+      const parts = latestNumber.split('-');
+      const parsed = Number.parseInt(parts[parts.length - 1] ?? '', 10);
+      if (!Number.isNaN(parsed)) seq = parsed + 1;
+    }
+
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      const candidate = `${pattern}${String(seq + attempt).padStart(6, '0')}`;
+      const exists = await this.numberExists(tx, candidate, kind);
+      if (!exists) return candidate;
+    }
+
+    throw new BadRequestException(
+      'Unable to generate a unique document number',
+    );
+  }
+
+  private async findLatestNumber(
+    tx: Prisma.TransactionClient | PrismaService,
+    tenantId: string,
+    pattern: string,
+    kind: 'quotation' | 'order' | 'invoice',
+  ) {
+    if (kind === 'quotation') {
+      const latest = await tx.quotation.findFirst({
+        where: { tenantId, number: { startsWith: pattern } },
+        orderBy: { number: 'desc' },
+        select: { number: true },
+      });
+      return latest?.number;
+    }
+
+    if (kind === 'order') {
+      const latest = await tx.order.findFirst({
+        where: { tenantId, number: { startsWith: pattern } },
+        orderBy: { number: 'desc' },
+        select: { number: true },
+      });
+      return latest?.number;
+    }
+
+    const latest = await tx.invoice.findFirst({
+      where: { tenantId, number: { startsWith: pattern } },
+      orderBy: { number: 'desc' },
+      select: { number: true },
+    });
+    return latest?.number;
+  }
+
+  private async numberExists(
+    tx: Prisma.TransactionClient | PrismaService,
+    number: string,
+    kind: 'quotation' | 'order' | 'invoice',
+  ) {
+    if (kind === 'quotation') {
+      return tx.quotation.findUnique({
+        where: { number },
+        select: { id: true },
+      });
+    }
+    if (kind === 'order') {
+      return tx.order.findUnique({ where: { number }, select: { id: true } });
+    }
+    return tx.invoice.findUnique({ where: { number }, select: { id: true } });
+  }
+}

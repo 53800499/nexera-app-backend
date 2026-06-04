@@ -54,6 +54,14 @@ enum QuotationStatus {
   converted
 }
 
+enum OrderStatus {
+  draft
+  confirmed
+  partially_paid
+  paid
+  cancelled
+}
+
 enum PaymentMethod {
   wire
   check
@@ -104,7 +112,7 @@ model Role {
   tenantId String @map("tenant_id")
 
   name        String
-  code        String  @unique
+  code        String
   description String?
 
   createdAt DateTime @default(now())
@@ -112,6 +120,7 @@ model Role {
   permissions RolePermission[]
   users       UserRole[]
 
+  @@unique([tenantId, code])
   @@map("roles")
 }
 
@@ -169,7 +178,7 @@ model Client {
   id       String @id @default(uuid())
   tenantId String @map("tenant_id")
 
-  code       String     @unique
+  code       String
   clientType ClientType @map("client_type")
 
   companyName String  @map("company_name")
@@ -198,6 +207,15 @@ model Client {
 
   contacts Contact[]
 
+  quotations Quotation[]
+  orders     Order[]
+  prices     CatalogItemPrice[]
+
+  invoices Invoice[]
+
+  payments Payment[]
+
+  @@unique([tenantId, code])
   @@map("clients")
 }
 
@@ -218,7 +236,36 @@ model Contact {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
+  quotations Quotation[]
+  invoices   Invoice[]
+
   @@map("contacts")
+}
+
+model CatalogCategory {
+  id String @id @default(uuid())
+
+  tenantId String @map("tenant_id")
+
+  name        String
+  code        String?
+  description String?
+
+  parentId String? @map("parent_id")
+
+  isArchived Boolean @default(false)
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  parent CatalogCategory? @relation("CategoryTree", fields: [parentId], references: [id])
+
+  children CatalogCategory[] @relation("CategoryTree")
+
+  items CatalogItem[]
+
+  @@unique([tenantId, name])
+  @@map("catalog_categories")
 }
 
 model CatalogItem {
@@ -244,7 +291,43 @@ model CatalogItem {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  category CatalogCategory? @relation(fields: [categoryId], references: [id])
+
+  taxRate TaxRate @relation(fields: [defaultTaxRateId], references: [id])
+
+  quotationLines QuotationLine[]
+  orderLines     OrderLine[]
+  prices         CatalogItemPrice[]
+
+  invoiceLines InvoiceLine[]
+
+  @@unique([tenantId, reference])
+  @@index([tenantId])
+  @@index([tenantId, name])
   @@map("catalog_items")
+}
+
+model CatalogItemPrice {
+  id       String @id @default(uuid())
+  tenantId String @map("tenant_id")
+
+  itemId String @map("item_id")
+  item   CatalogItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+
+  clientId String? @map("client_id")
+  client   Client? @relation(fields: [clientId], references: [id])
+
+  groupName String? @map("group_name")
+  priceHt   Float   @map("price_ht")
+  currency  String  @default("EUR")
+  validFrom DateTime? @map("valid_from")
+  validTo   DateTime? @map("valid_to")
+  isActive  Boolean @default(true) @map("is_active")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("catalog_item_prices")
 }
 
 model TaxRate {
@@ -256,6 +339,11 @@ model TaxRate {
 
   isDefault Boolean @default(false)
   isActive  Boolean @default(true)
+
+  quotationLines QuotationLine[]
+  orderLines     OrderLine[]
+  invoiceLines   InvoiceLine[]
+  catalogItems   CatalogItem[]
 
   @@map("tax_rates")
 }
@@ -269,6 +357,9 @@ model PaymentTerm {
   endOfMonth Boolean @default(false) @map("end_of_month")
   isDefault  Boolean @default(false)
 
+  quotations Quotation[]
+  invoices   Invoice[]
+
   @@map("payment_terms")
 }
 
@@ -278,8 +369,12 @@ model Quotation {
 
   number String @unique
 
-  clientId  String  @map("client_id")
+  clientId String @map("client_id")
+
+  client    Client  @relation(fields: [clientId], references: [id])
   contactId String?
+
+  contact Contact? @relation(fields: [contactId], references: [id])
 
   status QuotationStatus @default(draft)
 
@@ -289,7 +384,9 @@ model Quotation {
   currency     String @default("EUR")
   exchangeRate Float  @default(1)
 
-  paymentTermId String?
+  paymentTermId String? @map("payment_term_id")
+
+  paymentTerm PaymentTerm? @relation(fields: [paymentTermId], references: [id])
 
   subtotalHt     Float
   discountPct    Float @default(0)
@@ -308,7 +405,9 @@ model Quotation {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  lines QuotationLine[]
+  lines    QuotationLine[]
+  orders   Order[]
+  invoices Invoice[]
 
   @@map("quotations")
 }
@@ -321,7 +420,9 @@ model QuotationLine {
   quotation   Quotation @relation(fields: [quotationId], references: [id])
 
   position Int
-  itemId   String?
+  itemId   String? @map("item_id")
+
+  item CatalogItem? @relation(fields: [itemId], references: [id])
 
   description String
   quantity    Float
@@ -331,12 +432,74 @@ model QuotationLine {
   discountAmount Float @default(0)
 
   lineTotalHt Float
-  taxRateId   String
+  taxRateId   String @map("tax_rate_id")
+
+  taxRate TaxRate @relation(fields: [taxRateId], references: [id])
 
   taxAmount    Float
   lineTotalTtc Float
 
   @@map("quotation_lines")
+}
+
+model Order {
+  id       String @id @default(uuid())
+  tenantId String @map("tenant_id")
+
+  number      String      @unique
+  clientId    String      @map("client_id")
+  quotationId String?     @map("quotation_id")
+  status      OrderStatus @default(draft)
+
+  client    Client     @relation(fields: [clientId], references: [id])
+  quotation Quotation? @relation(fields: [quotationId], references: [id])
+
+  issueDate DateTime @map("issue_date")
+  currency  String   @default("EUR")
+
+  subtotalHt     Float
+  discountPct    Float @default(0)
+  discountAmount Float @default(0)
+  baseHt         Float
+  totalTax       Float
+  totalTtc       Float
+
+  createdBy String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  lines    OrderLine[]
+  invoices Invoice[]
+
+  @@map("orders")
+}
+
+model OrderLine {
+  id       String @id @default(uuid())
+  tenantId String @map("tenant_id")
+
+  orderId String @map("order_id")
+  order   Order  @relation(fields: [orderId], references: [id])
+
+  position Int
+  itemId   String?      @map("item_id")
+  item     CatalogItem? @relation(fields: [itemId], references: [id])
+
+  description String
+  quantity    Float
+  unitPriceHt Float  @map("unit_price_ht")
+
+  discountPct    Float @default(0)
+  discountAmount Float @default(0)
+  lineTotalHt    Float
+
+  taxRateId String?  @map("tax_rate_id")
+  taxRate   TaxRate? @relation(fields: [taxRateId], references: [id])
+
+  taxAmount    Float
+  lineTotalTtc Float
+
+  @@map("order_lines")
 }
 
 model Invoice {
@@ -347,11 +510,20 @@ model Invoice {
   invoiceType InvoiceType   @default(standard)
   status      InvoiceStatus @default(draft)
 
-  clientId          String  @map("client_id")
+  clientId String @map("client_id")
+
+  client            Client     @relation(fields: [clientId], references: [id])
   contactId         String?
+  contact           Contact?   @relation(fields: [contactId], references: [id])
+  quotation         Quotation? @relation(fields: [quotationId], references: [id])
+  order             Order?     @relation(fields: [orderId], references: [id])
   orderId           String?
   quotationId       String?
-  originalInvoiceId String?
+  originalInvoiceId String?    @map("original_invoice_id")
+
+  originalInvoice Invoice? @relation("CreditNotes", fields: [originalInvoiceId], references: [id])
+
+  creditNotes Invoice[] @relation("CreditNotes")
 
   issueDate DateTime
   dueDate   DateTime?
@@ -359,7 +531,9 @@ model Invoice {
   currency     String @default("EUR")
   exchangeRate Float  @default(1)
 
-  paymentTermId String?
+  paymentTermId String? @map("payment_term_id")
+
+  paymentTerm PaymentTerm? @relation(fields: [paymentTermId], references: [id])
 
   subtotalHt     Float
   discountPct    Float @default(0)
@@ -389,6 +563,9 @@ model Invoice {
   lines    InvoiceLine[]
   payments PaymentImputation[]
 
+  reminders         Reminder[]
+  recurringInvoices RecurringInvoice[]
+
   @@map("invoices")
 }
 
@@ -402,6 +579,11 @@ model InvoiceLine {
   position Int
   itemId   String?
 
+  item CatalogItem? @relation(fields: [itemId], references: [id])
+
+  taxRateId String?  @map("tax_rate_id")
+  taxRate   TaxRate? @relation(fields: [taxRateId], references: [id])
+
   description String
   quantity    Float
   unitPriceHt Float
@@ -410,7 +592,6 @@ model InvoiceLine {
   discountAmount Float @default(0)
 
   lineTotalHt  Float
-  taxRateId    String
   taxAmount    Float
   lineTotalTtc Float
 
@@ -422,6 +603,7 @@ model Payment {
   tenantId String @map("tenant_id")
 
   clientId String @map("client_id")
+  client   Client @relation(fields: [clientId], references: [id])
 
   reference   String?
   paymentDate DateTime
@@ -467,6 +649,8 @@ model Reminder {
 
   invoiceId String @map("invoice_id")
 
+  invoice Invoice @relation(fields: [invoiceId], references: [id])
+
   level   Int
   type    ReminderType
   channel ReminderChannel
@@ -480,4 +664,24 @@ model Reminder {
   createdAt DateTime @default(now())
 
   @@map("reminders")
+}
+
+model RecurringInvoice {
+  id String @id @default(uuid())
+
+  tenantId String @map("tenant_id")
+
+  invoiceId String @map("invoice_id")
+
+  invoice Invoice @relation(fields: [invoiceId], references: [id])
+
+  frequency String
+
+  nextExecution DateTime
+
+  isActive Boolean @default(true)
+
+  createdAt DateTime @default(now())
+
+  @@map("recurring_invoices")
 }

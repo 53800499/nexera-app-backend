@@ -9,7 +9,10 @@ import { RolesModule } from './modules/roles/roles.module';
 import { PermissionsModule } from './modules/permissions/permissions.module';
 import { TenantsModule } from './modules/tenants/tenants.module';
 import { UsersModule } from './modules/users/users.module';
+import { ClientsModule } from './modules/clients/clients.module';
+import { CatalogueModule } from './modules/catalogue/catalogue.module';
 import { TenantUserMiddleware } from './common/middleware/tenant-user.middleware';
+import { QuotationsModule } from './modules/quotations/quotations.module';
 
 @Module({
   imports: [
@@ -24,6 +27,9 @@ import { TenantUserMiddleware } from './common/middleware/tenant-user.middleware
     PermissionsModule,
     TenantsModule,
     UsersModule,
+    ClientsModule,
+    CatalogueModule,
+    QuotationsModule,
   ],
   controllers: [AppController],
   providers: [AppService],
