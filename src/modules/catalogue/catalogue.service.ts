@@ -65,11 +65,13 @@ export class CatalogueService {
     }
 
     const taxRate = await this.prisma.taxRate.findFirst({
-      where: { id: dto.defaultTaxRateId, tenantId },
+      where: { id: dto.defaultTaxRateId, tenantId, isActive: true },
     });
 
     if (!taxRate) {
-      throw new BadRequestException('Tax rate not found for this tenant');
+      throw new BadRequestException(
+        'Tax rate not found or inactive for this tenant (RM-A03)',
+      );
     }
 
     const reference = await this.generateReference(tenantId, dto.reference);
@@ -132,11 +134,13 @@ export class CatalogueService {
 
     if (dto.defaultTaxRateId) {
       const taxRate = await this.prisma.taxRate.findFirst({
-        where: { id: dto.defaultTaxRateId, tenantId },
+        where: { id: dto.defaultTaxRateId, tenantId, isActive: true },
       });
 
       if (!taxRate) {
-        throw new BadRequestException('Tax rate not found for this tenant');
+        throw new BadRequestException(
+          'Tax rate not found or inactive for this tenant (RM-A03)',
+        );
       }
     }
 
@@ -163,15 +167,16 @@ export class CatalogueService {
   async removeItem(id: string, tenantId: string) {
     const item = await this.findOneItem(id, tenantId);
 
-    const usedInQuotation = await this.prisma.quotationLine.findFirst({
-      where: { tenantId, itemId: id },
-    });
-    const usedInInvoice = await this.prisma.invoiceLine.findFirst({
-      where: { tenantId, itemId: id },
-    });
+    const [usedInQuotation, usedInOrder, usedInInvoice] = await Promise.all([
+      this.prisma.quotationLine.findFirst({ where: { tenantId, itemId: id } }),
+      this.prisma.orderLine.findFirst({ where: { tenantId, itemId: id } }),
+      this.prisma.invoiceLine.findFirst({ where: { tenantId, itemId: id } }),
+    ]);
 
-    if (usedInQuotation || usedInInvoice) {
-      throw new BadRequestException('Item is used in transactions; archive it instead of deleting it.');
+    if (usedInQuotation || usedInOrder || usedInInvoice) {
+      throw new BadRequestException(
+        'Item is used in transactions; archive only (RM-A04).',
+      );
     }
 
     await this.prisma.catalogItem.update({
@@ -219,8 +224,24 @@ export class CatalogueService {
       return explicit.trim().toUpperCase();
     }
 
-    for (let attempt = 0; attempt < 10; attempt += 1) {
-      const candidate = `ART-${Math.floor(100000 + Math.random() * 900000)}`;
+    const pattern = 'ART-';
+    const latest = await this.prisma.catalogItem.findFirst({
+      where: { tenantId, reference: { startsWith: pattern } },
+      orderBy: { reference: 'desc' },
+      select: { reference: true },
+    });
+
+    let seq = 1;
+    if (latest?.reference) {
+      const parsed = Number.parseInt(
+        latest.reference.replace(pattern, ''),
+        10,
+      );
+      if (!Number.isNaN(parsed)) seq = parsed + 1;
+    }
+
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      const candidate = `${pattern}${String(seq + attempt).padStart(6, '0')}`;
       const existing = await this.prisma.catalogItem.findFirst({
         where: { tenantId, reference: candidate },
       });

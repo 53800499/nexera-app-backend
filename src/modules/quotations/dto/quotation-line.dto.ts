@@ -1,3 +1,4 @@
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
   IsNotEmpty,
   IsNumber,
@@ -8,10 +9,12 @@ import {
 } from 'class-validator';
 
 export class QuotationLineDto {
+  @ApiPropertyOptional()
   @IsUUID()
   @IsOptional()
   itemId?: string;
 
+  @ApiProperty()
   @IsString()
   @IsNotEmpty()
   description!: string;

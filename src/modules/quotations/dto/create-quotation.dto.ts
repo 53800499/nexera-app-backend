@@ -1,3 +1,4 @@
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import {
   IsArray,
@@ -14,6 +15,7 @@ import {
 import { QuotationLineDto } from './quotation-line.dto';
 
 export class CreateQuotationDto {
+  @ApiProperty({ description: 'Client unique (RM-D04)' })
   @IsUUID()
   @IsNotEmpty()
   clientId!: string;
@@ -60,6 +62,7 @@ export class CreateQuotationDto {
   @IsOptional()
   internalNotes?: string;
 
+  @ApiProperty({ type: [QuotationLineDto] })
   @IsArray()
   @ArrayMinSize(1)
   @ValidateNested({ each: true })

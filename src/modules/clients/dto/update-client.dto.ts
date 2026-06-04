@@ -1,4 +1,7 @@
-import { PartialType } from '@nestjs/mapped-types';
+import { OmitType, PartialType } from '@nestjs/swagger';
 import { CreateClientDto } from './create-client.dto';
 
-export class UpdateClientDto extends PartialType(CreateClientDto) {}
+/** Le code client (CLT-XXXXXX) n'est pas modifiable — RM-C01 */
+export class UpdateClientDto extends PartialType(
+  OmitType(CreateClientDto, ['primaryContact', 'confirmDuplicate'] as const),
+) {}

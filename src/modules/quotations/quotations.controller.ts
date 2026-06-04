@@ -12,6 +12,12 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import type { Response } from 'express';
+import {
+  ApiBearerAuth,
+  ApiOperation,
+  ApiQuery,
+  ApiTags,
+} from '@nestjs/swagger';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../../common/guards/permissions.guard';
 import { Permissions } from '../../common/decorators/permissions.decorator';
@@ -23,6 +29,8 @@ import { ConvertQuotationDto } from './dto/convert-quotation.dto';
 import { ChangeQuotationStatusDto } from './dto/change-quotation-status.dto';
 import { QuotationStatus } from './enums/quotation-status.enum';
 
+@ApiTags('quotations')
+@ApiBearerAuth('access-token')
 @Controller('quotations')
 @UseGuards(JwtAuthGuard, PermissionsGuard)
 export class QuotationsController {
@@ -30,6 +38,10 @@ export class QuotationsController {
 
   @Post()
   @Permissions('manage:quotations')
+  @ApiOperation({
+    summary: 'Créer un devis',
+    description: 'UC-03 — numérotation DEV-AAAA-XXXXXX, calcul TVA/remises automatique.',
+  })
   create(
     @Body() dto: CreateQuotationDto,
     @Request() req: { user: { sub: string; tenantId: string } },
@@ -38,6 +50,10 @@ export class QuotationsController {
   }
 
   @Get()
+  @ApiOperation({ summary: 'Lister les devis' })
+  @ApiQuery({ name: 'status', required: false })
+  @ApiQuery({ name: 'clientId', required: false })
+  @ApiQuery({ name: 'q', required: false })
   findAll(
     @Request() req: { user: { tenantId: string } },
     @Query('page') page = '1',
@@ -57,6 +73,7 @@ export class QuotationsController {
   }
 
   @Get(':id/pdf')
+  @ApiOperation({ summary: 'Télécharger / prévisualiser le PDF du devis' })
   async downloadPdf(
     @Param('id') id: string,
     @Request() req: { user: { tenantId: string } },
@@ -111,6 +128,10 @@ export class QuotationsController {
 
   @Post(':id/send')
   @Permissions('manage:quotations')
+  @ApiOperation({
+    summary: 'Envoyer le devis',
+    description: 'Génère le PDF, passe au statut sent, envoi email si SMTP configuré.',
+  })
   send(
     @Param('id') id: string,
     @Body() dto: SendQuotationDto,
