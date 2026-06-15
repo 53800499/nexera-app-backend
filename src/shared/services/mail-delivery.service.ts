@@ -56,19 +56,27 @@ export class MailDeliveryService {
       this.config.get<string>('SMTP_FROM') ??
       this.config.get<string>('SMTP_USER');
 
-    await transporter.sendMail({
-      from,
-      to: input.to,
-      subject: input.subject,
-      text: input.text,
-      html: input.html,
-      attachments: input.attachments?.map((a) => ({
-        filename: a.filename,
-        content: a.content,
-        contentType: a.contentType ?? 'application/octet-stream',
-      })),
-    });
+    try {
+      await transporter.sendMail({
+        from,
+        to: input.to,
+        subject: input.subject,
+        text: input.text,
+        html: input.html,
+        attachments: input.attachments?.map((a) => ({
+          filename: a.filename,
+          content: a.content,
+          contentType: a.contentType ?? 'application/octet-stream',
+        })),
+      });
 
-    return { sent: true };
+      return { sent: true };
+    } catch (error) {
+      this.logger.error(
+        `Email not sent to ${input.to}: SMTP delivery failed`,
+        error instanceof Error ? error.stack : String(error),
+      );
+      return { sent: false, reason: 'smtp_error' };
+    }
   }
 }
