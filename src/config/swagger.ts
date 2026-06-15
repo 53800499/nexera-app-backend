@@ -27,6 +27,9 @@ export function setupSwagger(app: INestApplication) {
     .addTag('dashboard', 'UC-08 — Tableau de bord commercial')
     .addTag('settings', 'Paramétrage — taxes, conditions, numérotation, modèles')
     .addTag('public', 'Documents publics — liens sécurisés, suivi email')
+    .addTag('health', 'Sondes de disponibilité')
+    .addTag('metrics', 'Métriques de performance API')
+    .addTag('audit', 'Journal d\'audit immuable')
     .build();
 
   const document = SwaggerModule.createDocument(app, config);

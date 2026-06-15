@@ -7,6 +7,7 @@ import {
   Res,
 } from '@nestjs/common';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
+import { Public } from '../../common/decorators/public.decorator';
 import type { Response } from 'express';
 import { promises as fs } from 'fs';
 import * as path from 'path';
@@ -35,6 +36,7 @@ function resolvePdfPath(
 }
 
 @ApiTags('public')
+@Public()
 @Controller('public')
 export class PublicDocumentsController {
   constructor(

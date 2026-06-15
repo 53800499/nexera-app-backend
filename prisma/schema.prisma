@@ -111,6 +111,25 @@ enum PdfLayoutType {
   minimal
 }
 
+enum AuditEntityType {
+  invoice
+  quotation
+  payment
+  order
+}
+
+enum AuditAction {
+  create
+  update
+  delete
+  issue
+  send
+  cancel
+  record_payment
+  cancel_payment
+  convert
+}
+
 model User {
   id String @id @default(uuid())
 
@@ -939,4 +958,21 @@ model RecurringInvoice {
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at")
 
   @@map("recurring_invoices")
+}
+
+model AuditLog {
+  id         String          @id @default(uuid())
+  tenantId   String          @map("tenant_id")
+  userId     String?         @map("user_id")
+  entityType AuditEntityType @map("entity_type")
+  entityId   String          @map("entity_id")
+  action     AuditAction
+  changes    Json?
+  metadata   Json?
+  ipAddress  String?         @map("ip_address")
+  createdAt  DateTime        @default(now()) @map("created_at")
+
+  @@index([tenantId, createdAt])
+  @@index([tenantId, entityType, entityId])
+  @@map("audit_logs")
 }

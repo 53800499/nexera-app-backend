@@ -17,6 +17,7 @@ import { ClientUpdatedEvent } from './events/client-updated.event';
 import { ClientDeletedEvent } from './events/client-deleted.event';
 import { ClientContactAddedEvent } from './events/client-contact-added.event';
 import { ClientEntity } from './entities/client.entity';
+import { DEFAULT_PAGE_SIZE } from '../../shared/utils/pagination.util';
 import { DocumentNumberingService } from '../settings/services/document-numbering.service';
 import { NumberingDocumentType } from '../settings/enums/numbering-document-type.enum';
 
@@ -193,7 +194,7 @@ export class ClientsService {
     };
   }
 
-  async findAll(tenantId: string, page = 1, limit = 20, q?: string) {
+  async findAll(tenantId: string, page = 1, limit = DEFAULT_PAGE_SIZE, q?: string) {
     const where: Prisma.ClientWhereInput = { tenantId, deletedAt: null };
 
     if (q) {

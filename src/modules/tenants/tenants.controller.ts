@@ -27,11 +27,13 @@ export class TenantsController {
   }
 
   @Get()
+  @Permissions('manage:tenants')
   async findAll() {
     return this.tenantsService.findAll();
   }
 
   @Get(':id')
+  @Permissions('manage:tenants')
   async findOne(@Param('id') id: string) {
     return this.tenantsService.findOne(id);
   }

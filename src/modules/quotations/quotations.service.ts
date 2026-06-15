@@ -35,12 +35,15 @@ import {
   SendQuotationMailResult,
 } from './services/quotation-mail.service';
 import { OrdersService } from '../orders/orders.service';
+import { DEFAULT_PAGE_SIZE } from '../../shared/utils/pagination.util';
 import { DocumentNumberingService } from '../settings/services/document-numbering.service';
 import { NumberingDocumentType } from '../settings/enums/numbering-document-type.enum';
 import { EmailTemplateService } from '../settings/services/email-template.service';
 import { EmailTemplateType } from '../settings/enums/email-template-type.enum';
 import { DocumentAccessService } from '../documents/services/document-access.service';
 import { EmailTrackingService } from '../documents/services/email-tracking.service';
+import { AuditService } from '../audit/audit.service';
+import { AuditAction, AuditEntityType } from '../audit/enums/audit.enum';
 
 type ResolvedLine = {
   position: number;
@@ -68,6 +71,7 @@ export class QuotationsService {
     private readonly emailTemplateService: EmailTemplateService,
     private readonly documentAccessService: DocumentAccessService,
     private readonly emailTrackingService: EmailTrackingService,
+    private readonly auditService: AuditService,
   ) {}
 
   private readonly quotationInclude = {
@@ -141,13 +145,22 @@ export class QuotationsService {
       new QuotationCreatedEvent(QuotationEntity.fromPrisma(quotation)),
     );
 
+    await this.auditService.record({
+      tenantId,
+      userId: createdBy,
+      entityType: AuditEntityType.QUOTATION,
+      entityId: quotation.id,
+      action: AuditAction.CREATE,
+      changes: { number: quotation.number, totalTtc: quotation.totalTtc },
+    });
+
     return quotation;
   }
 
   async findAll(
     tenantId: string,
     page = 1,
-    limit = 20,
+    limit = DEFAULT_PAGE_SIZE,
     status?: QuotationStatus,
     clientId?: string,
     q?: string,
@@ -298,6 +311,14 @@ export class QuotationsService {
       new QuotationUpdatedEvent(QuotationEntity.fromPrisma(updated)),
     );
 
+    await this.auditService.record({
+      tenantId,
+      entityType: AuditEntityType.QUOTATION,
+      entityId: id,
+      action: AuditAction.UPDATE,
+      changes: { totalTtc: updated.totalTtc },
+    });
+
     return updated;
   }
 
@@ -314,6 +335,13 @@ export class QuotationsService {
     this.quotationEventBus.publish(
       new QuotationDeletedEvent(QuotationEntity.fromPrisma(quotation)),
     );
+
+    await this.auditService.record({
+      tenantId,
+      entityType: AuditEntityType.QUOTATION,
+      entityId: id,
+      action: AuditAction.DELETE,
+    });
 
     return { message: 'Quotation deleted successfully', quotationId: id };
   }
@@ -397,6 +425,14 @@ export class QuotationsService {
         recipientEmail,
       ),
     );
+
+    await this.auditService.record({
+      tenantId,
+      entityType: AuditEntityType.QUOTATION,
+      entityId: id,
+      action: AuditAction.SEND,
+      metadata: { recipientEmail, downloadUrl: access.downloadUrl },
+    });
 
     return {
       quotation: updated,
@@ -559,6 +595,15 @@ export class QuotationsService {
         result.targetId,
       ),
     );
+
+    await this.auditService.record({
+      tenantId,
+      userId: createdBy,
+      entityType: AuditEntityType.QUOTATION,
+      entityId: id,
+      action: AuditAction.CONVERT,
+      metadata: { target: dto.target, targetId: result.targetId },
+    });
 
     return result;
   }

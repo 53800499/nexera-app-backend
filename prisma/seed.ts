@@ -1,4 +1,6 @@
+import 'dotenv/config';
 import { PrismaClient } from '@prisma/client';
+import { PrismaPg } from '@prisma/adapter-pg';
 
 const QUOTATION_PERMISSIONS = [
   { code: 'quotations.read', description: 'View quotations' },
@@ -40,6 +42,9 @@ const SETTINGS_PERMISSIONS = [
 ];
 
 const API_ALIAS_PERMISSIONS = [
+  { code: 'clients.read', description: 'View clients' },
+  { code: 'catalogue.read', description: 'View catalogue' },
+  { code: 'manage:catalogue', description: 'Manage catalogue (API guard)' },
   { code: 'manage:users', description: 'Manage users (API guard)' },
   { code: 'manage:roles', description: 'Manage roles (API guard)' },
   { code: 'manage:permissions', description: 'Manage permissions (API guard)' },
@@ -61,7 +66,14 @@ const ALL_NEW_PERMISSIONS = [
 const ADMIN_ROLE_CODES = ['ADMIN', 'CEO'];
 
 async function main() {
-  const prisma = new PrismaClient();
+  const connectionString = process.env.DATABASE_URL;
+  if (!connectionString) {
+    throw new Error('DATABASE_URL must be set before running the seed.');
+  }
+
+  const prisma = new PrismaClient({
+    adapter: new PrismaPg({ connectionString }),
+  });
 
   for (const permission of ALL_NEW_PERMISSIONS) {
     await prisma.permission.upsert({

@@ -39,6 +39,7 @@ import { SendInvoiceDto } from './dto/send-invoice.dto';
 import { CreateRecurringInvoiceDto } from './dto/create-recurring-invoice.dto';
 import { InvoiceStatus } from './enums/invoice-status.enum';
 import { InvoiceType } from './enums/invoice-type.enum';
+import { parsePagination } from '../../shared/utils/pagination.util';
 import {
   InvoiceListResponseDto,
   InvoiceResponseDto,
@@ -81,9 +82,10 @@ export class InvoicesController {
   }
 
   @Get()
+  @Permissions('invoices.read')
   @ApiOperation({ summary: 'Lister les factures' })
   @ApiQuery({ name: 'page', required: false, example: 1 })
-  @ApiQuery({ name: 'limit', required: false, example: 20 })
+  @ApiQuery({ name: 'limit', required: false, example: 50 })
   @ApiQuery({ name: 'status', required: false, enum: InvoiceStatus })
   @ApiQuery({ name: 'invoiceType', required: false, enum: InvoiceType })
   @ApiQuery({ name: 'clientId', required: false })
@@ -91,17 +93,18 @@ export class InvoicesController {
   @ApiOkResponse({ type: InvoiceListResponseDto })
   findAll(
     @Request() req: { user: { tenantId: string } },
-    @Query('page') page = '1',
-    @Query('limit') limit = '20',
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
     @Query('status') status?: InvoiceStatus,
     @Query('invoiceType') invoiceType?: InvoiceType,
     @Query('clientId') clientId?: string,
     @Query('q') q?: string,
   ) {
+    const pagination = parsePagination(page, limit);
     return this.invoicesService.findAll(
       req.user.tenantId,
-      Number(page),
-      Number(limit),
+      pagination.page,
+      pagination.limit,
       status,
       invoiceType,
       clientId,
@@ -110,6 +113,7 @@ export class InvoicesController {
   }
 
   @Get(':id/pdf')
+  @Permissions('invoices.read')
   @ApiOperation({
     summary: 'Télécharger / prévisualiser le PDF de la facture',
     description:
@@ -133,6 +137,7 @@ export class InvoicesController {
   }
 
   @Get(':id')
+  @Permissions('invoices.read')
   @ApiOperation({
     summary: 'Détail facture',
     description:

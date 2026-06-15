@@ -2,6 +2,7 @@ import { Module, MiddlewareConsumer, NestModule } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { ScheduleModule } from '@nestjs/schedule';
 import { JwtModule } from '@nestjs/jwt';
+import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { DatabaseModule } from './infrastructure/database/database.module';
@@ -23,10 +24,22 @@ import { SettingsModule } from './modules/settings/settings.module';
 import { IntegrationEventsModule } from './shared/events/integration-events.module';
 import { DocumentsModule } from './modules/documents/documents.module';
 import { StockModule } from './modules/stock/stock.module';
+import { HealthModule } from './health/health.module';
+import { MetricsModule } from './shared/metrics/metrics.module';
+import { MetricsMiddleware } from './shared/metrics/metrics.middleware';
+import { AuditModule } from './modules/audit/audit.module';
+import { I18nModule } from './shared/i18n/i18n.module';
+import { TenantRlsInterceptor } from './common/interceptors/tenant-rls.interceptor';
+import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
+import { PermissionsGuard } from './common/guards/permissions.guard';
 
 @Module({
   imports: [
     IntegrationEventsModule,
+    MetricsModule,
+    AuditModule,
+    I18nModule,
+    HealthModule,
     ConfigModule.forRoot({
       isGlobal: true,
       envFilePath: '.env',
@@ -52,10 +65,15 @@ import { StockModule } from './modules/stock/stock.module';
     StockModule,
   ],
   controllers: [AppController],
-  providers: [AppService],
+  providers: [
+    AppService,
+    { provide: APP_GUARD, useClass: JwtAuthGuard },
+    { provide: APP_GUARD, useClass: PermissionsGuard },
+    { provide: APP_INTERCEPTOR, useClass: TenantRlsInterceptor },
+  ],
 })
 export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer) {
-    consumer.apply(TenantUserMiddleware).forRoutes('*');
+    consumer.apply(TenantUserMiddleware, MetricsMiddleware).forRoutes('*');
   }
 }

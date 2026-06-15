@@ -32,6 +32,7 @@ import {
   PaymentListResponseDto,
   PaymentResponseDto,
 } from './dto/payment-response.dto';
+import { parsePagination } from '../../shared/utils/pagination.util';
 
 @ApiTags('payments')
 @ApiBearerAuth('access-token')
@@ -43,6 +44,7 @@ export class PaymentsController {
   constructor(private readonly paymentsService: PaymentsService) {}
 
   @Get('clients/:clientId/context')
+  @Permissions('payments.read')
   @ApiOperation({
     summary: 'Contexte encaissement client',
     description:
@@ -82,29 +84,32 @@ export class PaymentsController {
   }
 
   @Get()
+  @Permissions('payments.read')
   @ApiOperation({ summary: 'Lister les encaissements' })
   @ApiQuery({ name: 'page', required: false, example: 1 })
-  @ApiQuery({ name: 'limit', required: false, example: 20 })
+  @ApiQuery({ name: 'limit', required: false, example: 50 })
   @ApiQuery({ name: 'clientId', required: false })
   @ApiQuery({ name: 'includeCancelled', required: false, example: false })
   @ApiOkResponse({ type: PaymentListResponseDto })
   findAll(
     @Request() req: { user: { tenantId: string } },
-    @Query('page') page = '1',
-    @Query('limit') limit = '20',
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
     @Query('clientId') clientId?: string,
     @Query('includeCancelled') includeCancelled?: string,
   ) {
+    const pagination = parsePagination(page, limit);
     return this.paymentsService.findAll(
       req.user.tenantId,
-      Number(page),
-      Number(limit),
+      pagination.page,
+      pagination.limit,
       clientId,
       includeCancelled === 'true',
     );
   }
 
   @Get(':id')
+  @Permissions('payments.read')
   @ApiOperation({ summary: 'Détail encaissement' })
   @ApiParam({ name: 'id', format: 'uuid' })
   @ApiOkResponse({ type: PaymentResponseDto })

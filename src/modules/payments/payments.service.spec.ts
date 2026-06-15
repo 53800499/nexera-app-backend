@@ -3,6 +3,7 @@ import { PaymentsService } from './payments.service';
 import { PrismaService } from '../../infrastructure/database/prisma.service';
 import { PaymentEventBus } from './events/payment-event-bus';
 import { RemindersService } from '../reminders/reminders.service';
+import { AuditService } from '../audit/audit.service';
 
 describe('PaymentsService', () => {
   let service: PaymentsService;
@@ -16,6 +17,10 @@ describe('PaymentsService', () => {
         {
           provide: RemindersService,
           useValue: { syncClientBlockStatus: jest.fn() },
+        },
+        {
+          provide: AuditService,
+          useValue: { record: jest.fn() },
         },
       ],
     }).compile();

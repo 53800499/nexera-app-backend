@@ -19,10 +19,9 @@ export class TenantMiddleware implements NestMiddleware {
       req.tenantId = user.tenantId;
     }
 
-    // Ou extraire du header custom si fourni
-    const tenantIdHeader = req.headers['x-tenant-id'] as string;
-    if (tenantIdHeader) {
-      req.tenantId = tenantIdHeader;
+    const tenantHeader = req.headers['x-tenant-id'] as string | undefined;
+    if (tenantHeader && process.env.NODE_ENV !== 'production') {
+      req.tenantId = tenantHeader;
     }
 
     next();

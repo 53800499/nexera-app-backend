@@ -32,11 +32,13 @@ export class UsersController {
   }
 
   @Get()
+  @Permissions('manage:users')
   async findAll(@Request() req: { user: { tenantId: string } }) {
     return this.usersService.findAll(req.user.tenantId);
   }
 
   @Get(':id')
+  @Permissions('manage:users')
   async findOne(
     @Param('id') id: string,
     @Request() req: { user: { tenantId: string } },
@@ -94,6 +96,7 @@ export class UsersController {
   }
 
   @Get(':id/permissions')
+  @Permissions('manage:users')
   async permissions(
     @Param('id') id: string,
     @Request() req: { user: { tenantId: string } },

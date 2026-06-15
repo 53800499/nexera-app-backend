@@ -1,0 +1,19 @@
+{
+  "errors": {
+    "forbidden": "Insufficient permission",
+    "not_found": "Resource not found",
+    "unauthorized": "Authentication required"
+  },
+  "audit": {
+    "invoice_created": "Invoice created",
+    "invoice_issued": "Invoice issued",
+    "invoice_sent": "Invoice sent",
+    "payment_recorded": "Payment recorded"
+  },
+  "pdf": {
+    "invoice_label": "Invoice",
+    "quotation_label": "Quotation",
+    "issue_date": "Issue date",
+    "due_date": "Due date"
+  }
+}

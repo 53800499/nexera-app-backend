@@ -26,6 +26,9 @@ import {
   convertBetweenCurrencies,
   PaymentAllocation,
 } from './utils/payment-allocation.util';
+import { DEFAULT_PAGE_SIZE } from '../../shared/utils/pagination.util';
+import { AuditService } from '../audit/audit.service';
+import { AuditAction, AuditEntityType } from '../audit/enums/audit.enum';
 import { RemindersService } from '../reminders/reminders.service';
 
 type OpenInvoice = {
@@ -49,6 +52,7 @@ export class PaymentsService {
     private readonly prisma: PrismaService,
     private readonly paymentEventBus: PaymentEventBus,
     private readonly remindersService: RemindersService,
+    private readonly auditService: AuditService,
   ) {}
 
   private readonly paymentInclude = {
@@ -99,7 +103,7 @@ export class PaymentsService {
   async findAll(
     tenantId: string,
     page = 1,
-    limit = 20,
+    limit = DEFAULT_PAGE_SIZE,
     clientId?: string,
     includeCancelled = false,
   ) {
@@ -229,6 +233,15 @@ export class PaymentsService {
       new PaymentRecordedEvent(entity, allocations, Math.max(0, unallocated)),
     );
 
+    await this.auditService.record({
+      tenantId,
+      userId: createdBy,
+      entityType: AuditEntityType.PAYMENT,
+      entityId: payment.id,
+      action: AuditAction.RECORD_PAYMENT,
+      changes: { amount: payment.amount, allocations },
+    });
+
     const response = this.toPaymentResponse(payment);
     if (payment.advances?.length) {
       const adv = payment.advances[0];
@@ -328,6 +341,14 @@ export class PaymentsService {
 
     const entity = PaymentEntity.fromPrisma(payment);
     this.paymentEventBus.publish(new PaymentCancelledEvent(entity, dto.reason));
+
+    await this.auditService.record({
+      tenantId,
+      entityType: AuditEntityType.PAYMENT,
+      entityId: id,
+      action: AuditAction.CANCEL_PAYMENT,
+      changes: { reason: dto.reason },
+    });
 
     await this.remindersService.syncClientBlockStatus(payment.clientId, tenantId);
 

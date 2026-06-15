@@ -36,6 +36,7 @@ export class RecurringInvoicesController {
   ) {}
 
   @Get()
+  @Permissions('invoices.read')
   @ApiOperation({
     summary: 'Lister les factures récurrentes',
     description: 'RM-F08 — plannings actifs et historique des brouillons générés.',
@@ -67,6 +68,7 @@ export class RecurringInvoicesController {
   }
 
   @Get(':id')
+  @Permissions('invoices.read')
   @ApiOperation({ summary: 'Détail d\'un planning récurrent' })
   @ApiParam({ name: 'id', format: 'uuid' })
   @ApiOkResponse({ type: RecurringInvoiceResponseDto })

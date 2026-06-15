@@ -33,11 +33,14 @@ import { NumberingDocumentType } from '../settings/enums/numbering-document-type
 import { SettingsService } from '../settings/settings.service';
 import { EmailTemplateService } from '../settings/services/email-template.service';
 import { EmailTemplateType } from '../settings/enums/email-template-type.enum';
-import { computeDueDateFromPaymentTerm } from '../settings/utils/due-date.util';
+import { DEFAULT_PAGE_SIZE } from '../../shared/utils/pagination.util';
+import { AuditService } from '../audit/audit.service';
+import { AuditAction, AuditEntityType } from '../audit/enums/audit.enum';
 import { InvoicePdfService } from './services/invoice-pdf.service';
 import { InvoiceMailService } from './services/invoice-mail.service';
 import { DocumentAccessService } from '../documents/services/document-access.service';
 import { EmailTrackingService } from '../documents/services/email-tracking.service';
+import { computeDueDateFromPaymentTerm } from '../settings/utils/due-date.util';
 
 type ResolvedLine = {
   position: number;
@@ -65,6 +68,7 @@ export class InvoicesService {
     private readonly invoiceMailService: InvoiceMailService,
     private readonly documentAccessService: DocumentAccessService,
     private readonly emailTrackingService: EmailTrackingService,
+    private readonly auditService: AuditService,
   ) {}
 
   private readonly invoiceInclude = {
@@ -184,6 +188,15 @@ export class InvoicesService {
     this.invoiceEventBus.publish(
       new InvoiceCreatedEvent(InvoiceEntity.fromPrisma(invoice)),
     );
+
+    await this.auditService.record({
+      tenantId,
+      userId: createdBy,
+      entityType: AuditEntityType.INVOICE,
+      entityId: invoice.id,
+      action: AuditAction.CREATE,
+      changes: { number: invoice.number, totalTtc: invoice.totalTtc },
+    });
 
     return this.enrichResponse(invoice);
   }
@@ -319,7 +332,7 @@ export class InvoicesService {
   async findAll(
     tenantId: string,
     page = 1,
-    limit = 20,
+    limit = DEFAULT_PAGE_SIZE,
     status?: InvoiceStatus,
     invoiceType?: InvoiceType,
     clientId?: string,
@@ -457,6 +470,14 @@ export class InvoicesService {
       });
     });
 
+    await this.auditService.record({
+      tenantId,
+      entityType: AuditEntityType.INVOICE,
+      entityId: id,
+      action: AuditAction.UPDATE,
+      changes: { status: updated.status, totalTtc: updated.totalTtc },
+    });
+
     return this.enrichResponse(updated);
   }
 
@@ -504,6 +525,14 @@ export class InvoicesService {
         issueDate,
       ),
     );
+
+    await this.auditService.record({
+      tenantId,
+      entityType: AuditEntityType.INVOICE,
+      entityId: id,
+      action: AuditAction.ISSUE,
+      changes: { number: finalNumber, issueDate: issueDate.toISOString() },
+    });
 
     return this.enrichResponse(updated);
   }
@@ -617,6 +646,14 @@ export class InvoicesService {
         recipientEmail,
       ),
     );
+
+    await this.auditService.record({
+      tenantId,
+      entityType: AuditEntityType.INVOICE,
+      entityId: id,
+      action: AuditAction.SEND,
+      metadata: { recipientEmail, downloadUrl: access.downloadUrl },
+    });
 
     return {
       invoice: this.enrichResponse(updated),
@@ -792,7 +829,25 @@ export class InvoicesService {
           totalTtc,
         ),
       );
+
+      await this.auditService.record({
+        tenantId,
+        userId: createdBy,
+        entityType: AuditEntityType.INVOICE,
+        entityId: original.id,
+        action: AuditAction.CANCEL,
+        changes: { creditNoteId: creditNote.id, amountTtc: totalTtc },
+      });
     }
+
+    await this.auditService.record({
+      tenantId,
+      userId: createdBy,
+      entityType: AuditEntityType.INVOICE,
+      entityId: creditNote.id,
+      action: AuditAction.CREATE,
+      changes: { type: 'credit_note', originalInvoiceId: original.id, totalTtc },
+    });
 
     return this.enrichResponse(creditNote);
   }

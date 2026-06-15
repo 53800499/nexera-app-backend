@@ -9,6 +9,7 @@ import { InvoicePdfService } from './services/invoice-pdf.service';
 import { InvoiceMailService } from './services/invoice-mail.service';
 import { DocumentAccessService } from '../documents/services/document-access.service';
 import { EmailTrackingService } from '../documents/services/email-tracking.service';
+import { AuditService } from '../audit/audit.service';
 
 describe('InvoicesService', () => {
   let service: InvoicesService;
@@ -46,7 +47,11 @@ describe('InvoicesService', () => {
         },
         {
           provide: EmailTrackingService,
-          useValue: { isEnabled: jest.fn(), createTracking: jest.fn() },
+          useValue: { create: jest.fn() },
+        },
+        {
+          provide: AuditService,
+          useValue: { record: jest.fn() },
         },
       ],
     }).compile();

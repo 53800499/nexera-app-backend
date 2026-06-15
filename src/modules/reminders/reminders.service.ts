@@ -5,6 +5,7 @@ import {
 } from '@nestjs/common';
 import { Prisma, ReminderSettings } from '@prisma/client';
 import { PrismaService } from '../../infrastructure/database/prisma.service';
+import { DEFAULT_PAGE_SIZE } from '../../shared/utils/pagination.util';
 import { InvoiceStatus } from '../invoices/enums/invoice-status.enum';
 import { InvoiceType } from '../invoices/enums/invoice-type.enum';
 import { UpdateReminderSettingsDto } from './dto/update-reminder-settings.dto';
@@ -84,7 +85,7 @@ export class RemindersService {
   async findAll(
     tenantId: string,
     page = 1,
-    limit = 20,
+    limit = DEFAULT_PAGE_SIZE,
     clientId?: string,
     invoiceId?: string,
   ) {

@@ -33,6 +33,7 @@ import { CreateOrderDto } from './dto/create-order.dto';
 import { UpdateOrderDto } from './dto/update-order.dto';
 import { CreateOrderInvoiceDto } from './dto/create-order-invoice.dto';
 import { OrderStatus } from './enums/order-status.enum';
+import { parsePagination } from '../../shared/utils/pagination.util';
 import {
   OrderInvoiceCreatedResponseDto,
   OrderListResponseDto,
@@ -77,12 +78,13 @@ export class OrdersController {
   }
 
   @Get()
+  @Permissions('orders.read')
   @ApiOperation({
     summary: 'Lister les bons de commande',
     description: 'Liste paginée avec recherche par numéro BC, client ou devis source.',
   })
   @ApiQuery({ name: 'page', required: false, example: 1 })
-  @ApiQuery({ name: 'limit', required: false, example: 20 })
+  @ApiQuery({ name: 'limit', required: false, example: 50 })
   @ApiQuery({
     name: 'status',
     required: false,
@@ -95,16 +97,17 @@ export class OrdersController {
   @ApiOkResponse({ type: OrderListResponseDto })
   findAll(
     @Request() req: { user: { tenantId: string } },
-    @Query('page') page = '1',
-    @Query('limit') limit = '20',
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
     @Query('status') status?: OrderStatus,
     @Query('clientId') clientId?: string,
     @Query('q') q?: string,
   ) {
+    const pagination = parsePagination(page, limit);
     return this.ordersService.findAll(
       req.user.tenantId,
-      Number(page),
-      Number(limit),
+      pagination.page,
+      pagination.limit,
       status,
       clientId,
       q,
@@ -112,6 +115,7 @@ export class OrdersController {
   }
 
   @Get(':id')
+  @Permissions('orders.read')
   @ApiOperation({
     summary: 'Détail bon de commande',
     description: `Retourne le BC avec :

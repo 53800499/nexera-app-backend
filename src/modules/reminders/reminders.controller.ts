@@ -29,6 +29,7 @@ import { RemindersService } from './reminders.service';
 import { PaymentBehaviorAnalysisService } from './services/payment-behavior-analysis.service';
 import { UpdateReminderSettingsDto } from './dto/update-reminder-settings.dto';
 import { SendManualReminderDto } from './dto/send-manual-reminder.dto';
+import { parsePagination } from '../../shared/utils/pagination.util';
 import {
   PaymentBehaviorSuggestionDto,
   ReminderListResponseDto,
@@ -50,6 +51,7 @@ export class RemindersController {
   ) {}
 
   @Get('settings')
+  @Permissions('reminders.read')
   @ApiOperation({
     summary: 'Paramètres de relance',
     description: 'Délais et options configurables par l\'administrateur.',
@@ -86,29 +88,32 @@ export class RemindersController {
   }
 
   @Get()
+  @Permissions('reminders.read')
   @ApiOperation({ summary: 'Lister les relances' })
   @ApiQuery({ name: 'page', required: false, example: 1 })
-  @ApiQuery({ name: 'limit', required: false, example: 20 })
+  @ApiQuery({ name: 'limit', required: false, example: 50 })
   @ApiQuery({ name: 'clientId', required: false })
   @ApiQuery({ name: 'invoiceId', required: false })
   @ApiOkResponse({ type: ReminderListResponseDto })
   findAll(
     @Request() req: { user: { tenantId: string } },
-    @Query('page') page = '1',
-    @Query('limit') limit = '20',
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
     @Query('clientId') clientId?: string,
     @Query('invoiceId') invoiceId?: string,
   ) {
+    const pagination = parsePagination(page, limit);
     return this.remindersService.findAll(
       req.user.tenantId,
-      Number(page),
-      Number(limit),
+      pagination.page,
+      pagination.limit,
       clientId,
       invoiceId,
     );
   }
 
   @Get('invoices/:invoiceId')
+  @Permissions('reminders.read')
   @ApiOperation({ summary: 'Historique des relances d\'une facture' })
   @ApiParam({ name: 'invoiceId', format: 'uuid' })
   @ApiOkResponse({ type: [ReminderResponseDto] })
@@ -120,6 +125,7 @@ export class RemindersController {
   }
 
   @Get('clients/:clientId')
+  @Permissions('reminders.read')
   @ApiOperation({ summary: 'Historique des relances d\'un client' })
   @ApiParam({ name: 'clientId', format: 'uuid' })
   @ApiOkResponse({ type: [ReminderResponseDto] })
@@ -131,6 +137,7 @@ export class RemindersController {
   }
 
   @Get('clients/:clientId/payment-behavior')
+  @Permissions('reminders.read')
   @ApiOperation({
     summary: 'Analyse comportement de paiement',
     description:

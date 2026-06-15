@@ -28,6 +28,7 @@ import { SendQuotationDto } from './dto/send-quotation.dto';
 import { ConvertQuotationDto } from './dto/convert-quotation.dto';
 import { ChangeQuotationStatusDto } from './dto/change-quotation-status.dto';
 import { QuotationStatus } from './enums/quotation-status.enum';
+import { parsePagination } from '../../shared/utils/pagination.util';
 
 @ApiTags('quotations')
 @ApiBearerAuth('access-token')
@@ -50,22 +51,25 @@ export class QuotationsController {
   }
 
   @Get()
+  @Permissions('quotations.read')
   @ApiOperation({ summary: 'Lister les devis' })
   @ApiQuery({ name: 'status', required: false })
   @ApiQuery({ name: 'clientId', required: false })
   @ApiQuery({ name: 'q', required: false })
+  @ApiQuery({ name: 'limit', required: false, example: 50 })
   findAll(
     @Request() req: { user: { tenantId: string } },
-    @Query('page') page = '1',
-    @Query('limit') limit = '20',
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
     @Query('status') status?: QuotationStatus,
     @Query('clientId') clientId?: string,
     @Query('q') q?: string,
   ) {
+    const pagination = parsePagination(page, limit);
     return this.quotationsService.findAll(
       req.user.tenantId,
-      Number(page),
-      Number(limit),
+      pagination.page,
+      pagination.limit,
       status,
       clientId,
       q,
@@ -73,6 +77,7 @@ export class QuotationsController {
   }
 
   @Get(':id/pdf')
+  @Permissions('quotations.read')
   @ApiOperation({ summary: 'Télécharger / prévisualiser le PDF du devis' })
   async downloadPdf(
     @Param('id') id: string,
@@ -92,6 +97,7 @@ export class QuotationsController {
   }
 
   @Get(':id/preview')
+  @Permissions('quotations.read')
   preview(
     @Param('id') id: string,
     @Request() req: { user: { tenantId: string } },
@@ -100,6 +106,7 @@ export class QuotationsController {
   }
 
   @Get(':id')
+  @Permissions('quotations.read')
   findOne(
     @Param('id') id: string,
     @Request() req: { user: { tenantId: string } },

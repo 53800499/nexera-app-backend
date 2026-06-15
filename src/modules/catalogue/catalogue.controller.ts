@@ -8,7 +8,6 @@ import {
   Post,
   Query,
   Request,
-  UseGuards,
 } from '@nestjs/common';
 import {
   ApiBearerAuth,
@@ -16,7 +15,7 @@ import {
   ApiQuery,
   ApiTags,
 } from '@nestjs/swagger';
-import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
+import { Permissions } from '../../common/decorators/permissions.decorator';
 import { CatalogueService } from './catalogue.service';
 import { CreateCatalogCategoryDto } from './dto/create-catalog-category.dto';
 import { UpdateCatalogCategoryDto } from './dto/update-catalog-category.dto';
@@ -27,11 +26,11 @@ import { CreateCatalogPriceDto } from './dto/create-catalog-price.dto';
 @ApiTags('catalogue')
 @ApiBearerAuth('access-token')
 @Controller('catalogue')
-@UseGuards(JwtAuthGuard)
 export class CatalogueController {
   constructor(private readonly catalogueService: CatalogueService) {}
 
   @Post('categories')
+  @Permissions('manage:catalogue')
   @ApiOperation({ summary: 'Créer une catégorie catalogue' })
   createCategory(
     @Body() dto: CreateCatalogCategoryDto,
@@ -41,12 +40,14 @@ export class CatalogueController {
   }
 
   @Get('categories')
+  @Permissions('catalogue.read')
   @ApiOperation({ summary: 'Lister les catégories' })
   findAllCategories(@Request() req: { user: { tenantId: string } }) {
     return this.catalogueService.findAllCategories(req.user.tenantId);
   }
 
   @Get('categories/:id')
+  @Permissions('catalogue.read')
   @ApiOperation({ summary: 'Détail catégorie' })
   findOneCategory(
     @Param('id') id: string,
@@ -56,6 +57,7 @@ export class CatalogueController {
   }
 
   @Patch('categories/:id')
+  @Permissions('manage:catalogue')
   @ApiOperation({ summary: 'Modifier une catégorie' })
   updateCategory(
     @Param('id') id: string,
@@ -66,6 +68,7 @@ export class CatalogueController {
   }
 
   @Delete('categories/:id')
+  @Permissions('manage:catalogue')
   @ApiOperation({ summary: 'Supprimer une catégorie' })
   removeCategory(
     @Param('id') id: string,
@@ -75,6 +78,7 @@ export class CatalogueController {
   }
 
   @Post('items')
+  @Permissions('manage:catalogue')
   @ApiOperation({
     summary: 'Créer un article / service',
     description:
@@ -88,6 +92,7 @@ export class CatalogueController {
   }
 
   @Get('items')
+  @Permissions('catalogue.read')
   @ApiOperation({ summary: 'Lister les articles' })
   @ApiQuery({ name: 'q', required: false })
   findAllItems(
@@ -98,6 +103,7 @@ export class CatalogueController {
   }
 
   @Get('items/:id')
+  @Permissions('catalogue.read')
   @ApiOperation({ summary: 'Détail article avec tarifs' })
   findOneItem(
     @Param('id') id: string,
@@ -107,6 +113,7 @@ export class CatalogueController {
   }
 
   @Patch('items/:id')
+  @Permissions('manage:catalogue')
   @ApiOperation({ summary: 'Modifier un article' })
   updateItem(
     @Param('id') id: string,
@@ -117,6 +124,7 @@ export class CatalogueController {
   }
 
   @Delete('items/:id')
+  @Permissions('manage:catalogue')
   @ApiOperation({
     summary: 'Archiver un article',
     description:
@@ -130,6 +138,7 @@ export class CatalogueController {
   }
 
   @Post('items/:id/prices')
+  @Permissions('manage:catalogue')
   @ApiOperation({
     summary: 'Ajouter un tarif (client ou groupe)',
     description: 'RM-A05 — tarifs multiples par client ou groupe.',
@@ -143,6 +152,7 @@ export class CatalogueController {
   }
 
   @Get('items/:id/prices')
+  @Permissions('catalogue.read')
   @ApiOperation({ summary: 'Lister les tarifs d’un article' })
   findPrices(
     @Param('id') id: string,

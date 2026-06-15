@@ -27,6 +27,7 @@ import { UpdateClientDto } from './dto/update-client.dto';
 import { CreateContactDto } from './dto/create-contact.dto';
 import { UpdateContactDto } from './dto/update-contact.dto';
 import { CheckClientDuplicateDto } from './dto/check-client-duplicate.dto';
+import { parsePagination } from '../../shared/utils/pagination.util';
 
 @ApiTags('clients')
 @ApiBearerAuth('access-token')
@@ -36,6 +37,7 @@ export class ClientsController {
   constructor(private readonly clientsService: ClientsService) {}
 
   @Post('check-duplicates')
+  @Permissions('clients.read')
   @ApiOperation({
     summary: 'Détecter les doublons potentiels',
     description: 'RM-C03 — alerte si SIRET, IFU (taxId) ou email identique.',
@@ -65,25 +67,28 @@ export class ClientsController {
   }
 
   @Get()
+  @Permissions('clients.read')
   @ApiOperation({ summary: 'Lister les clients (paginé)' })
-  @ApiQuery({ name: 'page', required: false })
-  @ApiQuery({ name: 'limit', required: false })
+  @ApiQuery({ name: 'page', required: false, example: 1 })
+  @ApiQuery({ name: 'limit', required: false, example: 50 })
   @ApiQuery({ name: 'q', required: false, description: 'Recherche texte' })
   findAll(
     @Request() req: { user: { tenantId: string } },
-    @Query('page') page = '1',
-    @Query('limit') limit = '20',
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
     @Query('q') q?: string,
   ) {
+    const pagination = parsePagination(page, limit);
     return this.clientsService.findAll(
       req.user.tenantId,
-      Number(page),
-      Number(limit),
+      pagination.page,
+      pagination.limit,
       q,
     );
   }
 
   @Get('search')
+  @Permissions('clients.read')
   @ApiOperation({ summary: 'Recherche rapide clients (auto-complétion)' })
   @ApiQuery({ name: 'q', required: false })
   search(@Request() req: { user: { tenantId: string } }, @Query('q') q = '') {
@@ -91,6 +96,7 @@ export class ClientsController {
   }
 
   @Get(':id')
+  @Permissions('clients.read')
   @ApiOperation({
     summary: 'Fiche client détaillée',
     description:

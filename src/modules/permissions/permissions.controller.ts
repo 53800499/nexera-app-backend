@@ -29,11 +29,13 @@ export class PermissionsController {
   }
 
   @Get()
+  @Permissions('manage:permissions')
   async findAll() {
     return this.permissionsService.findAll();
   }
 
   @Get(':id')
+  @Permissions('manage:permissions')
   async findOne(@Param('id') id: string) {
     return this.permissionsService.findOne(id);
   }

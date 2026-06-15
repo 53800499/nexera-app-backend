@@ -24,6 +24,7 @@ import { OrderUpdatedEvent } from './events/order-updated.event';
 import { OrderConfirmedEvent } from './events/order-confirmed.event';
 import { OrderInvoiceCreatedEvent } from './events/order-invoice-created.event';
 import { InvoicesService } from '../invoices/invoices.service';
+import { DEFAULT_PAGE_SIZE } from '../../shared/utils/pagination.util';
 import { DocumentNumberingService } from '../settings/services/document-numbering.service';
 import { NumberingDocumentType } from '../settings/enums/numbering-document-type.enum';
 
@@ -141,7 +142,7 @@ export class OrdersService {
   async findAll(
     tenantId: string,
     page = 1,
-    limit = 20,
+    limit = DEFAULT_PAGE_SIZE,
     status?: OrderStatus,
     clientId?: string,
     q?: string,

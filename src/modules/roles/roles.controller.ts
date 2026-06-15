@@ -28,11 +28,13 @@ export class RolesController {
   }
 
   @Get()
+  @Permissions('manage:roles')
   async findAll(@Request() req: any) {
     return this.rolesService.findAll(req.user.tenantId);
   }
 
   @Get(':id')
+  @Permissions('manage:roles')
   async findOne(@Param('id') id: string, @Request() req: any) {
     return this.rolesService.findOne(id, req.user.tenantId);
   }

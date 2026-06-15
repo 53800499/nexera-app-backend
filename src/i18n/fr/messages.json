@@ -1,0 +1,19 @@
+{
+  "errors": {
+    "forbidden": "Permission insuffisante",
+    "not_found": "Ressource introuvable",
+    "unauthorized": "Authentification requise"
+  },
+  "audit": {
+    "invoice_created": "Facture créée",
+    "invoice_issued": "Facture émise",
+    "invoice_sent": "Facture envoyée",
+    "payment_recorded": "Encaissement enregistré"
+  },
+  "pdf": {
+    "invoice_label": "Facture",
+    "quotation_label": "Devis",
+    "issue_date": "Date d'émission",
+    "due_date": "Échéance"
+  }
+}
