@@ -87,7 +87,9 @@ describe('AuthService.register', () => {
       get: jest.fn((key: string, fallback?: string) => fallback ?? key),
     } as any;
 
-    const service = new AuthService(prisma, jwt, config);
+    const service = new AuthService(prisma, jwt, config, {
+      seedTenantDefaults: jest.fn().mockResolvedValue(undefined),
+    } as any);
 
     const result = await service.register({
       email: 'john@acme.test',
@@ -174,7 +176,9 @@ describe('AuthService.register', () => {
       get: jest.fn((key: string, fallback?: string) => fallback ?? key),
     } as any;
 
-    const service = new AuthService(prisma, jwt, config);
+    const service = new AuthService(prisma, jwt, config, {
+      seedTenantDefaults: jest.fn().mockResolvedValue(undefined),
+    } as any);
 
     const result = await service.register({
       email: 'john@acme.test',

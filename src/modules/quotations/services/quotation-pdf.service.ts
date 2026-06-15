@@ -1,9 +1,17 @@
 import { Injectable } from '@nestjs/common';
-import PDFDocument from 'pdfkit';
 import { promises as fs } from 'fs';
 import * as path from 'path';
+import { PrismaService } from '../../../infrastructure/database/prisma.service';
+import { SettingsService } from '../../settings/settings.service';
+import {
+  buildTaxBreakdown,
+  generateDocumentPdf,
+} from '../../../shared/pdf/document-pdf.builder';
+import { PdfAddress } from '../../../shared/pdf/document-pdf.types';
 
 type QuotationForPdf = {
+  id: string;
+  tenantId: string;
   number: string;
   issueDate: Date;
   expiryDate: Date | null;
@@ -15,7 +23,14 @@ type QuotationForPdf = {
   totalTax: number;
   totalTtc: number;
   notes: string | null;
-  client: { companyName: string; code: string };
+  client: {
+    companyName: string;
+    tradeName?: string | null;
+    siret?: string | null;
+    taxId?: string | null;
+    billingAddress?: unknown;
+    code: string;
+  };
   contact?: { firstName: string; lastName: string; email?: string | null } | null;
   lines: Array<{
     position: number;
@@ -37,6 +52,11 @@ export class QuotationPdfService {
     'quotations',
   );
 
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly settingsService: SettingsService,
+  ) {}
+
   getPublicUrl(quotationId: string) {
     return `/quotations/${quotationId}/pdf`;
   }
@@ -46,79 +66,76 @@ export class QuotationPdfService {
   }
 
   async generate(quotation: QuotationForPdf): Promise<Buffer> {
-    return new Promise((resolve, reject) => {
-      const doc = new PDFDocument({ margin: 50, size: 'A4' });
-      const chunks: Buffer[] = [];
+    const [tenant, settings, pdfTemplate] = await Promise.all([
+      this.prisma.tenant.findUnique({ where: { id: quotation.tenantId } }),
+      this.settingsService.getTenantSettings(quotation.tenantId),
+      this.settingsService.getPdfTemplate(quotation.tenantId),
+    ]);
 
-      doc.on('data', (chunk: Buffer) => chunks.push(chunk));
-      doc.on('end', () => resolve(Buffer.concat(chunks)));
-      doc.on('error', reject);
+    const lines = quotation.lines.map((line) => ({
+      position: line.position,
+      description: line.description,
+      quantity: line.quantity,
+      unitPriceHt: line.unitPriceHt,
+      lineTotalHt: line.lineTotalHt,
+      taxRate: line.taxRate?.rate ?? 0,
+      taxRateName: line.taxRate?.name,
+      taxAmount: line.taxAmount,
+      lineTotalTtc: line.lineTotalTtc,
+    }));
 
-      doc.fontSize(18).text(`Devis ${quotation.number}`, { align: 'center' });
-      doc.moveDown(0.5);
-      doc
-        .fontSize(10)
-        .text(
-          `Date : ${quotation.issueDate.toLocaleDateString('fr-FR')}` +
-            (quotation.expiryDate
-              ? `  |  Validité : ${quotation.expiryDate.toLocaleDateString('fr-FR')}`
-              : ''),
-        );
+    const taxBreakdown = buildTaxBreakdown(lines, quotation.baseHt);
+    const companyAddress = settings.companyAddress as PdfAddress | null;
 
-      doc.moveDown();
-      doc.fontSize(12).text('Client', { underline: true });
-      doc.fontSize(10).text(`${quotation.client.companyName} (${quotation.client.code})`);
-
-      if (quotation.contact) {
-        doc.text(
-          `Contact : ${quotation.contact.firstName} ${quotation.contact.lastName}`,
-        );
-      }
-
-      doc.moveDown();
-      doc.fontSize(11).text('Lignes', { underline: true });
-      doc.moveDown(0.3);
-
-      for (const line of quotation.lines) {
-        const taxLabel = line.taxRate
-          ? `${line.taxRate.name} (${line.taxRate.rate}%)`
-          : 'TVA';
-        doc
-          .fontSize(9)
-          .text(
-            `${line.position}. ${line.description}`,
-          );
-        doc.text(
-          `   Qté ${line.quantity} × ${line.unitPriceHt.toFixed(2)} ${quotation.currency} HT` +
-            `  |  HT ${line.lineTotalHt.toFixed(2)}  |  ${taxLabel} ${line.taxAmount.toFixed(2)}` +
-            `  |  TTC ${line.lineTotalTtc.toFixed(2)}`,
-        );
-      }
-
-      doc.moveDown();
-      doc.fontSize(11).text('Totaux', { underline: true });
-      doc.fontSize(10);
-      doc.text(`Sous-total HT : ${quotation.subtotalHt.toFixed(2)} ${quotation.currency}`);
-      if (quotation.discountAmount > 0 || quotation.discountPct > 0) {
-        doc.text(
-          `Remise globale : ${quotation.discountAmount.toFixed(2)} ${quotation.currency}` +
-            (quotation.discountPct > 0 ? ` (${quotation.discountPct} %)` : ''),
-        );
-      }
-      doc.text(`Base HT : ${quotation.baseHt.toFixed(2)} ${quotation.currency}`);
-      doc.text(`TVA : ${quotation.totalTax.toFixed(2)} ${quotation.currency}`);
-      doc.fontSize(12).text(
-        `Total TTC : ${quotation.totalTtc.toFixed(2)} ${quotation.currency}`,
-        { underline: true },
-      );
-
-      if (quotation.notes) {
-        doc.moveDown();
-        doc.fontSize(10).text('Notes / conditions', { underline: true });
-        doc.text(quotation.notes);
-      }
-
-      doc.end();
+    return generateDocumentPdf({
+      documentType: 'quotation',
+      documentLabel: 'Devis',
+      number: quotation.number,
+      issueDate: quotation.issueDate,
+      dueDate: quotation.expiryDate,
+      currency: quotation.currency,
+      seller: {
+        name: tenant?.name ?? 'Entreprise',
+        legalName: settings.legalName,
+        tradeName: settings.tradeName,
+        siret: settings.siret,
+        vatNumber: settings.vatNumber,
+        registrationNumber: settings.registrationNumber,
+        shareCapital: settings.shareCapital,
+        address: companyAddress,
+        phone: settings.companyPhone,
+        email: settings.companyEmail,
+        website: settings.companyWebsite,
+      },
+      buyer: {
+        companyName: quotation.client.companyName,
+        tradeName: quotation.client.tradeName,
+        siret: quotation.client.siret,
+        taxId: quotation.client.taxId,
+        billingAddress: quotation.client.billingAddress as PdfAddress | null,
+      },
+      lines,
+      subtotalHt: quotation.subtotalHt,
+      discountPct: quotation.discountPct,
+      discountAmount: quotation.discountAmount,
+      baseHt: quotation.baseHt,
+      taxBreakdown,
+      totalTax: quotation.totalTax,
+      totalTtc: quotation.totalTtc,
+      acceptedPaymentMethods: settings.acceptedPaymentMethods,
+      notes: quotation.notes,
+      template: {
+        logoUrl: pdfTemplate.logoUrl,
+        primaryColor: pdfTemplate.primaryColor,
+        secondaryColor: pdfTemplate.secondaryColor,
+        fontFamily: pdfTemplate.fontFamily,
+        layoutType: pdfTemplate.layoutType,
+        showPageNumbers: pdfTemplate.showPageNumbers,
+        headerText: pdfTemplate.headerText,
+        footerText: pdfTemplate.footerText,
+        legalMentions: pdfTemplate.legalMentions,
+        termsAndConditions: pdfTemplate.termsAndConditions ?? settings.cgvText,
+      },
     });
   }
 

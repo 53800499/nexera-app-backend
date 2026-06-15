@@ -6,6 +6,39 @@ const QUOTATION_PERMISSIONS = [
   { code: 'manage:quotations', description: 'Manage quotations (API guard)' },
 ];
 
+const ORDER_PERMISSIONS = [
+  { code: 'orders.read', description: 'View orders' },
+  { code: 'orders.write', description: 'Manage orders' },
+  { code: 'manage:orders', description: 'Manage orders (API guard)' },
+];
+
+const INVOICE_PERMISSIONS = [
+  { code: 'invoices.read', description: 'View invoices' },
+  { code: 'invoices.write', description: 'Manage invoices' },
+  { code: 'manage:invoices', description: 'Manage invoices (API guard)' },
+];
+
+const PAYMENT_PERMISSIONS = [
+  { code: 'payments.read', description: 'View payments' },
+  { code: 'payments.write', description: 'Manage payments' },
+  { code: 'manage:payments', description: 'Manage payments (API guard)' },
+];
+
+const REMINDER_PERMISSIONS = [
+  { code: 'reminders.read', description: 'View reminders' },
+  { code: 'reminders.write', description: 'Manage reminders' },
+  { code: 'manage:reminders', description: 'Manage reminders (API guard)' },
+];
+
+const DASHBOARD_PERMISSIONS = [
+  { code: 'dashboard.read', description: 'View commercial dashboard' },
+];
+
+const SETTINGS_PERMISSIONS = [
+  { code: 'settings.read', description: 'View tenant settings' },
+  { code: 'manage:settings', description: 'Manage tenant settings (API guard)' },
+];
+
 const API_ALIAS_PERMISSIONS = [
   { code: 'manage:users', description: 'Manage users (API guard)' },
   { code: 'manage:roles', description: 'Manage roles (API guard)' },
@@ -16,6 +49,12 @@ const API_ALIAS_PERMISSIONS = [
 
 const ALL_NEW_PERMISSIONS = [
   ...QUOTATION_PERMISSIONS,
+  ...ORDER_PERMISSIONS,
+  ...INVOICE_PERMISSIONS,
+  ...PAYMENT_PERMISSIONS,
+  ...REMINDER_PERMISSIONS,
+  ...DASHBOARD_PERMISSIONS,
+  ...SETTINGS_PERMISSIONS,
   ...API_ALIAS_PERMISSIONS,
 ];
 

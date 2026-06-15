@@ -10,6 +10,7 @@ import { PrismaService } from '../../infrastructure/database/prisma.service';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
 import { JwtPayload } from '../../shared/interfaces/jwt-payload.interface';
+import { SettingsBootstrapService } from '../settings/services/settings-bootstrap.service';
 
 @Injectable()
 export class AuthService {
@@ -30,6 +31,21 @@ export class AuthService {
     { code: 'manage:tenants', description: 'Manage tenants (API guard)' },
     { code: 'manage:clients', description: 'Manage clients (API guard)' },
     { code: 'manage:quotations', description: 'Manage quotations (API guard)' },
+    { code: 'orders.read', description: 'View orders' },
+    { code: 'orders.write', description: 'Manage orders' },
+    { code: 'manage:orders', description: 'Manage orders (API guard)' },
+    { code: 'invoices.read', description: 'View invoices' },
+    { code: 'invoices.write', description: 'Manage invoices' },
+    { code: 'manage:invoices', description: 'Manage invoices (API guard)' },
+    { code: 'payments.read', description: 'View payments' },
+    { code: 'payments.write', description: 'Manage payments' },
+    { code: 'manage:payments', description: 'Manage payments (API guard)' },
+    { code: 'reminders.read', description: 'View reminders' },
+    { code: 'reminders.write', description: 'Manage reminders' },
+    { code: 'manage:reminders', description: 'Manage reminders (API guard)' },
+    { code: 'dashboard.read', description: 'View commercial dashboard' },
+    { code: 'settings.read', description: 'View tenant settings' },
+    { code: 'manage:settings', description: 'Manage tenant settings (API guard)' },
   ];
 
   private readonly defaultRoles = [
@@ -40,6 +56,7 @@ export class AuthService {
     private prisma: PrismaService,
     private jwt: JwtService,
     private config: ConfigService,
+    private readonly settingsBootstrap: SettingsBootstrapService,
   ) {}
 
   async register(dto: RegisterDto) {
@@ -73,6 +90,7 @@ export class AuthService {
       tenant = await this.prisma.tenant.create({
         data: { name: tenantNameValue },
       });
+      await this.settingsBootstrap.seedTenantDefaults(tenant.id);
     }
 
     await this.seedDefaultRolesAndPermissions(tenant.id);
@@ -133,7 +151,7 @@ export class AuthService {
         },
       },
     });
-
+/* 0511857001416 */
     await Promise.all(
       roles.map((role) =>
         this.prisma.userRole.create({

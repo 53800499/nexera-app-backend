@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { IntegrationEventBus } from '../../../shared/events/integration-event.bus';
 import { QuotationCreatedEvent } from '../events/quotation-created.event';
 import { QuotationUpdatedEvent } from '../events/quotation-updated.event';
 import { QuotationDeletedEvent } from '../events/quotation-deleted.event';
@@ -8,6 +9,8 @@ import { QuotationConvertedEvent } from '../events/quotation-converted.event';
 
 @Injectable()
 export class QuotationDomainEventHandler {
+  constructor(private readonly integrationBus: IntegrationEventBus) {}
+
   onQuotationCreated(event: QuotationCreatedEvent) {
     console.log('[quotations] created', event.quotation.toResponse());
   }
@@ -45,5 +48,15 @@ export class QuotationDomainEventHandler {
       event.target,
       event.targetId,
     );
+    void this.integrationBus.publish({
+      eventName: event.eventName,
+      tenantId: event.quotation.tenantId,
+      occurredAt: new Date(),
+      payload: {
+        quotationId: event.quotation.id,
+        target: event.target,
+        targetId: event.targetId,
+      },
+    });
   }
 }

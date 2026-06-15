@@ -5,7 +5,7 @@ export function setupSwagger(app: INestApplication) {
   const config = new DocumentBuilder()
     .setTitle('Nexera API')
     .setDescription(
-      'API de gestion commerciale Nexera — clients (UC-01), catalogue (UC-02), devis (UC-03).',
+      'API Nexera — clients (UC-01), catalogue (UC-02), devis (UC-03), commandes (UC-04), factures (UC-05), encaissements (UC-06), relances (UC-07), tableau de bord (UC-08), paramétrage.',
     )
     .setVersion('1.0')
     .addBearerAuth(
@@ -20,6 +20,13 @@ export function setupSwagger(app: INestApplication) {
     .addTag('clients', 'UC-01 — Créer et gérer un client')
     .addTag('catalogue', 'UC-02 — Créer et gérer le catalogue')
     .addTag('quotations', 'UC-03 — Créer et gérer un devis')
+    .addTag('orders', 'UC-04 — Créer et gérer un bon de commande')
+    .addTag('invoices', 'UC-05 — Créer et gérer les factures')
+    .addTag('payments', 'UC-06 — Enregistrer un encaissement')
+    .addTag('reminders', 'UC-07 — Relances clients')
+    .addTag('dashboard', 'UC-08 — Tableau de bord commercial')
+    .addTag('settings', 'Paramétrage — taxes, conditions, numérotation, modèles')
+    .addTag('public', 'Documents publics — liens sécurisés, suivi email')
     .build();
 
   const document = SwaggerModule.createDocument(app, config);

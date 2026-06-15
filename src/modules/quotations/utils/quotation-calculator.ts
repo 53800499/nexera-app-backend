@@ -1,10 +1,16 @@
-export interface QuotationLineInput {
-  quantity: number;
-  unitPriceHt: number;
-  discountPct?: number;
-  discountAmount?: number;
-  taxRate: number;
-}
+import {
+  ComputedDocumentLine,
+  DocumentLineInput,
+  DocumentTotals,
+  computeAmountDue,
+  computeDocumentFromInputs,
+  computeDocumentFromLineNets,
+  computeLineNet,
+  roundCent,
+  roundExchangeRate,
+} from '../../../shared/utils/document-calculator';
+
+export type QuotationLineInput = DocumentLineInput;
 
 export interface ComputedQuotationLine {
   lineTotalHt: number;
@@ -12,66 +18,50 @@ export interface ComputedQuotationLine {
   lineTotalTtc: number;
 }
 
-export interface QuotationTotals {
-  subtotalHt: number;
-  discountPct: number;
-  discountAmount: number;
-  baseHt: number;
-  totalTax: number;
-  totalTtc: number;
-}
+export type QuotationTotals = DocumentTotals;
 
-/** Arrondi au centime inférieur (RM-D02). */
-export function roundDownCent(value: number): number {
-  return Math.floor(value * 100 + 1e-9) / 100;
-}
+/** @deprecated Utiliser roundCent — conservé pour compatibilité imports existants */
+export const roundDownCent = roundCent;
 
 export function computeLine(line: QuotationLineInput): ComputedQuotationLine {
-  const grossHt = line.quantity * line.unitPriceHt;
-  const lineDiscount =
-    (line.discountAmount ?? 0) > 0
-      ? line.discountAmount!
-      : grossHt * ((line.discountPct ?? 0) / 100);
+  const { lines } = computeDocumentFromInputs([line]);
+  const computed = lines[0];
+  return {
+    lineTotalHt: computed.lineTotalHt,
+    taxAmount: computed.taxAmount,
+    lineTotalTtc: computed.lineTotalTtc,
+  };
+}
 
-  const lineTotalHt = roundDownCent(Math.max(0, grossHt - lineDiscount));
-  const taxAmount = roundDownCent(lineTotalHt * (line.taxRate / 100));
-  const lineTotalTtc = roundDownCent(lineTotalHt + taxAmount);
-
-  return { lineTotalHt, taxAmount, lineTotalTtc };
+export interface LineWithTaxRate extends ComputedQuotationLine {
+  taxRate: number;
 }
 
 export function computeTotals(
-  lines: ComputedQuotationLine[],
+  lines: Array<ComputedQuotationLine & { taxRate: number }>,
   globalDiscountPct = 0,
   globalDiscountAmount = 0,
 ): QuotationTotals {
-  const subtotalHt = roundDownCent(
-    lines.reduce((sum, line) => sum + line.lineTotalHt, 0),
-  );
+  const lineNets = lines.map((line) => ({
+    grossHt: line.lineTotalHt,
+    lineDiscount: 0,
+    lineTotalHt: line.lineTotalHt,
+    taxRate: line.taxRate,
+  }));
 
-  const globalDiscount =
-    globalDiscountAmount > 0
-      ? globalDiscountAmount
-      : roundDownCent(subtotalHt * (globalDiscountPct / 100));
-
-  const baseHt = roundDownCent(Math.max(0, subtotalHt - globalDiscount));
-  const rawTax = roundDownCent(
-    lines.reduce((sum, line) => sum + line.taxAmount, 0),
-  );
-
-  const totalTax =
-    subtotalHt > 0
-      ? roundDownCent(rawTax * (baseHt / subtotalHt))
-      : 0;
-
-  const totalTtc = roundDownCent(baseHt + totalTax);
-
-  return {
-    subtotalHt,
-    discountPct: globalDiscountPct,
-    discountAmount: globalDiscount > 0 ? globalDiscount : globalDiscountAmount,
-    baseHt,
-    totalTax,
-    totalTtc,
-  };
+  return computeDocumentFromLineNets(
+    lineNets,
+    globalDiscountPct,
+    globalDiscountAmount,
+  ).totals;
 }
+
+export function computeDocument(
+  inputs: DocumentLineInput[],
+  globalDiscountPct = 0,
+  globalDiscountAmount = 0,
+): { lines: ComputedDocumentLine[]; totals: DocumentTotals } {
+  return computeDocumentFromInputs(inputs, globalDiscountPct, globalDiscountAmount);
+}
+
+export { computeLineNet, roundCent, roundExchangeRate, computeAmountDue };

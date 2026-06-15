@@ -1,4 +1,5 @@
 import {
+  computeDocument,
   computeLine,
   computeTotals,
   roundDownCent,
@@ -6,9 +7,9 @@ import {
 
 describe('quotation-calculator', () => {
   describe('roundDownCent', () => {
-    it('rounds down to the nearest cent', () => {
-      expect(roundDownCent(10.999)).toBe(10.99);
-      expect(roundDownCent(10.991)).toBe(10.99);
+    it('rounds half up to the nearest cent (alias of roundCent)', () => {
+      expect(roundDownCent(10.995)).toBe(11);
+      expect(roundDownCent(10.994)).toBe(10.99);
       expect(roundDownCent(10.99)).toBe(10.99);
     });
   });
@@ -40,26 +41,25 @@ describe('quotation-calculator', () => {
       expect(line.taxAmount).toBe(35);
       expect(line.lineTotalTtc).toBe(210);
     });
+  });
 
-    it('applies tax with round-down per line (RM-D02)', () => {
-      const line = computeLine({
-        quantity: 3,
-        unitPriceHt: 33.33,
-        taxRate: 20,
-      });
+  describe('computeDocument', () => {
+    it('aggregates VAT by tax rate across lines', () => {
+      const { lines, totals } = computeDocument([
+        { quantity: 3, unitPriceHt: 33.33, taxRate: 20 },
+      ]);
 
-      expect(line.lineTotalHt).toBe(99.99);
-      expect(line.taxAmount).toBe(19.99);
-      expect(line.lineTotalTtc).toBe(119.98);
+      expect(lines[0].taxAmount).toBe(20);
+      expect(totals.totalTax).toBe(20);
     });
   });
 
   describe('computeTotals', () => {
-    it('applies global discount after line discounts (RM-D03)', () => {
-      const lines = [
-        computeLine({ quantity: 1, unitPriceHt: 1000, discountPct: 0, taxRate: 20 }),
-        computeLine({ quantity: 2, unitPriceHt: 200, discountPct: 10, taxRate: 10 }),
-      ];
+    it('applies global discount after line discounts', () => {
+      const { lines } = computeDocument([
+        { quantity: 1, unitPriceHt: 1000, taxRate: 20 },
+        { quantity: 2, unitPriceHt: 200, discountPct: 10, taxRate: 10 },
+      ]);
 
       const totals = computeTotals(lines, 5, 0);
 
@@ -71,9 +71,9 @@ describe('quotation-calculator', () => {
     });
 
     it('supports global discount as fixed amount', () => {
-      const lines = [
-        computeLine({ quantity: 1, unitPriceHt: 500, taxRate: 20 }),
-      ];
+      const { lines } = computeDocument([
+        { quantity: 1, unitPriceHt: 500, taxRate: 20 },
+      ]);
       const totals = computeTotals(lines, 0, 50);
 
       expect(totals.subtotalHt).toBe(500);

@@ -1,11 +1,11 @@
-import { Injectable, Logger } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import * as nodemailer from 'nodemailer';
+import { Injectable } from '@nestjs/common';
+import { MailDeliveryService } from '../../../shared/services/mail-delivery.service';
 
 export interface SendQuotationMailInput {
   to: string;
   subject: string;
   text: string;
+  html?: string;
   pdf: Buffer;
   filename: string;
 }
@@ -17,44 +17,18 @@ export interface SendQuotationMailResult {
 
 @Injectable()
 export class QuotationMailService {
-  private readonly logger = new Logger(QuotationMailService.name);
-
-  constructor(private readonly config: ConfigService) {}
+  constructor(private readonly mail: MailDeliveryService) {}
 
   isEnabled(): boolean {
-    return (
-      this.config.get<string>('MAIL_ENABLED', 'false') === 'true' &&
-      !!this.config.get<string>('SMTP_HOST')
-    );
+    return this.mail.isEnabled();
   }
 
-  async send(input: SendQuotationMailInput): Promise<SendQuotationMailResult> {
-    if (!this.isEnabled()) {
-      this.logger.warn(
-        `Email not sent to ${input.to}: SMTP not configured (set MAIL_ENABLED=true and SMTP_HOST)`,
-      );
-      return { sent: false, reason: 'smtp_not_configured' };
-    }
-
-    const transporter = nodemailer.createTransport({
-      host: this.config.get<string>('SMTP_HOST'),
-      port: Number(this.config.get<string>('SMTP_PORT', '587')),
-      secure: this.config.get<string>('SMTP_SECURE', 'false') === 'true',
-      auth: {
-        user: this.config.get<string>('SMTP_USER'),
-        pass: this.config.get<string>('SMTP_PASS'),
-      },
-    });
-
-    const from =
-      this.config.get<string>('SMTP_FROM') ??
-      this.config.get<string>('SMTP_USER');
-
-    await transporter.sendMail({
-      from,
+  send(input: SendQuotationMailInput): Promise<SendQuotationMailResult> {
+    return this.mail.send({
       to: input.to,
       subject: input.subject,
       text: input.text,
+      html: input.html,
       attachments: [
         {
           filename: input.filename,
@@ -63,7 +37,5 @@ export class QuotationMailService {
         },
       ],
     });
-
-    return { sent: true };
   }
 }

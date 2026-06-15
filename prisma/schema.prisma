@@ -81,6 +81,36 @@ enum ReminderChannel {
   print
 }
 
+enum NumberingDocumentType {
+  quotation
+  order_draft
+  order_issued
+  invoice_draft
+  invoice_issued
+  client
+  catalog_item
+}
+
+enum EmailTemplateType {
+  quotation_send
+  invoice_send
+  reminder_level_1
+  reminder_level_2
+  reminder_level_3
+  recurring_invoice
+}
+
+enum ExchangeRateSource {
+  manual
+  api
+}
+
+enum PdfLayoutType {
+  classic
+  modern
+  minimal
+}
+
 model User {
   id String @id @default(uuid())
 
@@ -198,6 +228,10 @@ model Client {
 
   notes String?
 
+  remindersDisabled       Boolean @default(false) @map("reminders_disabled")
+  remindersDisabledReason String? @map("reminders_disabled_reason")
+  blockedForNewOrders     Boolean @default(false) @map("blocked_for_new_orders")
+
   isArchived Boolean @default(false) @map("is_archived")
   createdBy  String  @map("created_by")
 
@@ -214,6 +248,8 @@ model Client {
   invoices Invoice[]
 
   payments Payment[]
+  advances ClientAdvance[]
+  reminders Reminder[]
 
   @@unique([tenantId, code])
   @@map("clients")
@@ -285,6 +321,8 @@ model CatalogItem {
 
   defaultTaxRateId String @map("default_tax_rate_id")
   maxDiscountPct   Float? @map("max_discount_pct")
+
+  stockQuantity Float? @default(0) @map("stock_quantity")
 
   isArchived Boolean @default(false)
 
@@ -562,9 +600,13 @@ model Invoice {
 
   lines    InvoiceLine[]
   payments PaymentImputation[]
+  advanceApplications AdvanceApplication[]
 
   reminders         Reminder[]
-  recurringInvoices RecurringInvoice[]
+  recurringInvoices RecurringInvoice[] @relation("RecurringTemplate")
+  recurringSource   RecurringInvoice?  @relation("RecurringGenerated", fields: [recurringSourceId], references: [id])
+
+  recurringSourceId String? @map("recurring_source_id")
 
   @@map("invoices")
 }
@@ -610,7 +652,11 @@ model Payment {
   amount      Float
 
   currency      String        @default("EUR")
+  exchangeRate  Float         @default(1) @map("exchange_rate")
+  exchangeGainLoss Float?       @map("exchange_gain_loss")
   paymentMethod PaymentMethod @map("payment_method")
+
+  unallocatedAmount Float @default(0) @map("unallocated_amount")
 
   notes       String?
   isCancelled Boolean @default(false)
@@ -621,7 +667,9 @@ model Payment {
   createdBy String
   createdAt DateTime @default(now())
 
-  imputations PaymentImputation[]
+  imputations         PaymentImputation[]
+  advances            ClientAdvance[]
+  advanceApplications AdvanceApplication[]
 
   @@map("payments")
 }
@@ -643,27 +691,225 @@ model PaymentImputation {
   @@map("payment_imputations")
 }
 
+model ClientAdvance {
+  id       String @id @default(uuid())
+  tenantId String @map("tenant_id")
+
+  clientId String @map("client_id")
+  client   Client @relation(fields: [clientId], references: [id])
+
+  sourcePaymentId String  @map("source_payment_id")
+  sourcePayment   Payment @relation(fields: [sourcePaymentId], references: [id])
+
+  originalAmount  Float @map("original_amount")
+  remainingAmount Float @map("remaining_amount")
+  currency        String @default("EUR")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  applications AdvanceApplication[]
+
+  @@map("client_advances")
+}
+
+model AdvanceApplication {
+  id       String @id @default(uuid())
+  tenantId String @map("tenant_id")
+
+  advanceId String        @map("advance_id")
+  advance   ClientAdvance @relation(fields: [advanceId], references: [id])
+
+  paymentId String  @map("payment_id")
+  payment   Payment @relation(fields: [paymentId], references: [id])
+
+  invoiceId String  @map("invoice_id")
+  invoice   Invoice @relation(fields: [invoiceId], references: [id])
+
+  amount Float
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("advance_applications")
+}
+
 model Reminder {
   id       String @id @default(uuid())
   tenantId String @map("tenant_id")
 
   invoiceId String @map("invoice_id")
+  invoice   Invoice @relation(fields: [invoiceId], references: [id])
 
-  invoice Invoice @relation(fields: [invoiceId], references: [id])
+  clientId String @map("client_id")
+  client   Client @relation(fields: [clientId], references: [id])
 
   level   Int
   type    ReminderType
   channel ReminderChannel
 
+  subject      String?
   sentAt       DateTime
   emailTo      String?
-  bodySnapshot String?
+  ccEmails     String? @map("cc_emails")
+  bodySnapshot String? @map("body_snapshot")
 
-  createdBy String?
+  createdBy String? @map("created_by")
 
-  createdAt DateTime @default(now())
+  createdAt DateTime @default(now()) @map("created_at")
 
   @@map("reminders")
+}
+
+model ReminderSettings {
+  id       String @id @default(uuid())
+  tenantId String @unique @map("tenant_id")
+
+  isEnabled Boolean @default(true) @map("is_enabled")
+
+  level1DaysAfterDue Int @default(3) @map("level1_days_after_due")
+  level2DaysAfterDue Int @default(15) @map("level2_days_after_due")
+  level3DaysAfterDue Int @default(30) @map("level3_days_after_due")
+
+  level2CopyCommercial  Boolean @default(true) @map("level2_copy_commercial")
+  level3AlertDirector   Boolean @default(true) @map("level3_alert_director")
+  level3BlockNewOrders  Boolean @default(false) @map("level3_block_new_orders")
+
+  commercialEmail String? @map("commercial_email")
+  directorEmail   String? @map("director_email")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("reminder_settings")
+}
+
+model TenantSettings {
+  id       String @id @default(uuid())
+  tenantId String @unique @map("tenant_id")
+
+  primaryCurrency      String             @default("EUR") @map("primary_currency")
+  exchangeRateSource   ExchangeRateSource @default(manual) @map("exchange_rate_source")
+
+  latePaymentPenaltyRate Float  @default(10) @map("late_payment_penalty_rate")
+  latePaymentPenaltyText String? @map("late_payment_penalty_text")
+
+  legalName              String? @map("legal_name")
+  tradeName              String? @map("trade_name")
+  siret                  String?
+  vatNumber              String? @map("vat_number")
+  registrationNumber     String? @map("registration_number")
+  shareCapital           String? @map("share_capital")
+  companyAddress         Json?   @map("company_address")
+  companyPhone           String? @map("company_phone")
+  companyEmail           String? @map("company_email")
+  companyWebsite         String? @map("company_website")
+  acceptedPaymentMethods String? @map("accepted_payment_methods")
+  cgvText                String? @map("cgv_text")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("tenant_settings")
+}
+
+model TenantCurrency {
+  id       String @id @default(uuid())
+  tenantId String @map("tenant_id")
+
+  code       String
+  name       String
+  symbol     String?
+  manualRate Float?  @map("manual_rate")
+  isActive   Boolean @default(true) @map("is_active")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([tenantId, code])
+  @@map("tenant_currencies")
+}
+
+model DocumentNumberingRule {
+  id       String @id @default(uuid())
+  tenantId String @map("tenant_id")
+
+  documentType  NumberingDocumentType @map("document_type")
+  prefix        String
+  suffix        String?
+  separator     String                @default("-")
+  draftMarker   String?               @map("draft_marker")
+  includeYear   Boolean               @default(true) @map("include_year")
+  counterLength Int                   @default(6) @map("counter_length")
+  annualReset   Boolean               @default(true) @map("annual_reset")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([tenantId, documentType])
+  @@map("document_numbering_rules")
+}
+
+model EmailTemplate {
+  id       String @id @default(uuid())
+  tenantId String @map("tenant_id")
+
+  type     EmailTemplateType
+  subject  String
+  body     String
+  isActive Boolean @default(true) @map("is_active")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([tenantId, type])
+  @@map("email_templates")
+}
+
+model PdfTemplate {
+  id       String @id @default(uuid())
+  tenantId String @unique @map("tenant_id")
+
+  logoUrl            String?       @map("logo_url")
+  primaryColor       String        @default("#1a56db") @map("primary_color")
+  secondaryColor     String        @default("#6b7280") @map("secondary_color")
+  fontFamily         String        @default("Helvetica") @map("font_family")
+  layoutType         PdfLayoutType @default(classic) @map("layout_type")
+  showPageNumbers    Boolean       @default(true) @map("show_page_numbers")
+  headerText         String?       @map("header_text")
+  footerText         String?       @map("footer_text")
+  legalMentions      String?       @map("legal_mentions")
+  termsAndConditions String?       @map("terms_and_conditions")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("pdf_templates")
+}
+
+model DocumentAccessToken {
+  id           String   @id @default(uuid())
+  token        String   @unique
+  tenantId     String   @map("tenant_id")
+  documentType String   @map("document_type")
+  documentId   String   @map("document_id")
+  expiresAt    DateTime @map("expires_at")
+  openedAt     DateTime? @map("opened_at")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  @@index([token])
+  @@map("document_access_tokens")
+}
+
+model EmailTracking {
+  id             String   @id @default(uuid())
+  trackingId     String   @unique @map("tracking_id")
+  tenantId       String   @map("tenant_id")
+  documentType   String   @map("document_type")
+  documentId     String   @map("document_id")
+  recipientEmail String   @map("recipient_email")
+  openedAt       DateTime? @map("opened_at")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  @@map("email_tracking")
 }
 
 model RecurringInvoice {
@@ -673,15 +919,24 @@ model RecurringInvoice {
 
   invoiceId String @map("invoice_id")
 
-  invoice Invoice @relation(fields: [invoiceId], references: [id])
+  invoice Invoice @relation("RecurringTemplate", fields: [invoiceId], references: [id])
 
   frequency String
 
-  nextExecution DateTime
+  nextExecution DateTime @map("nextExecution")
 
-  isActive Boolean @default(true)
+  isActive Boolean @default(true) @map("isActive")
 
-  createdAt DateTime @default(now())
+  lastNotifiedAt DateTime? @map("last_notified_at")
+
+  lastGeneratedInvoiceId String? @map("last_generated_invoice_id")
+
+  lastGeneratedForExecution DateTime? @map("last_generated_for_execution")
+
+  generatedInvoices Invoice[] @relation("RecurringGenerated")
+
+  createdAt DateTime @default(now()) @map("createdAt")
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at")
 
   @@map("recurring_invoices")
 }

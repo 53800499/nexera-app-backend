@@ -95,6 +95,19 @@ export class CreateClientDto {
 
   @ApiPropertyOptional({
     description:
+      'Désactiver les relances automatiques (client VIP, accord de paiement en cours)',
+  })
+  @IsBoolean()
+  @IsOptional()
+  remindersDisabled?: boolean;
+
+  @ApiPropertyOptional({ description: 'Motif de désactivation des relances' })
+  @IsString()
+  @IsOptional()
+  remindersDisabledReason?: string;
+
+  @ApiPropertyOptional({
+    description:
       'Confirmer la création malgré un doublon détecté (SIRET / IFU / email — RM-C03)',
     default: false,
   })

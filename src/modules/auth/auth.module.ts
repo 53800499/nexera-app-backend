@@ -7,10 +7,12 @@ import { AuthService } from './auth.service';
 import { JwtStrategy } from '../../common/strategies/jwt.strategy';
 import { RefreshTokenStrategy } from '../../common/strategies/refresh.strategy';
 import { DatabaseModule } from '../../infrastructure/database/database.module';
+import { SettingsModule } from '../settings/settings.module';
 
 @Module({
   imports: [
     DatabaseModule,
+    SettingsModule,
     PassportModule,
     JwtModule.registerAsync({
       useFactory: (config: ConfigService) => ({

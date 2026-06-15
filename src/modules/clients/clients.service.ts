@@ -17,12 +17,15 @@ import { ClientUpdatedEvent } from './events/client-updated.event';
 import { ClientDeletedEvent } from './events/client-deleted.event';
 import { ClientContactAddedEvent } from './events/client-contact-added.event';
 import { ClientEntity } from './entities/client.entity';
+import { DocumentNumberingService } from '../settings/services/document-numbering.service';
+import { NumberingDocumentType } from '../settings/enums/numbering-document-type.enum';
 
 @Injectable()
 export class ClientsService {
   constructor(
     private prisma: PrismaService,
     private readonly clientEventBus: ClientEventBus,
+    private readonly numberingService: DocumentNumberingService,
   ) {}
 
   private clientInclude = {
@@ -130,7 +133,10 @@ export class ClientsService {
       });
     }
 
-    const code = await this.generateClientCode(tenantId);
+    const code = await this.numberingService.generateNext(
+      tenantId,
+      NumberingDocumentType.CLIENT,
+    );
 
     const client = await this.prisma.$transaction(async (tx) => {
       const created = await tx.client.create({
@@ -152,6 +158,8 @@ export class ClientsService {
           defaultDiscountPct: dto.defaultDiscountPct ?? 0,
           creditLimit: dto.creditLimit,
           notes: dto.notes,
+          remindersDisabled: dto.remindersDisabled ?? false,
+          remindersDisabledReason: dto.remindersDisabledReason,
           isArchived: false,
           createdBy,
           contacts: {
@@ -543,28 +551,4 @@ export class ClientsService {
     }
   }
 
-  private async generateClientCode(tenantId: string) {
-    const pattern = 'CLT-';
-    const latest = await this.prisma.client.findFirst({
-      where: { tenantId, code: { startsWith: pattern } },
-      orderBy: { code: 'desc' },
-      select: { code: true },
-    });
-
-    let seq = 1;
-    if (latest?.code) {
-      const parsed = Number.parseInt(latest.code.replace(pattern, ''), 10);
-      if (!Number.isNaN(parsed)) seq = parsed + 1;
-    }
-
-    for (let attempt = 0; attempt < 20; attempt += 1) {
-      const candidate = `${pattern}${String(seq + attempt).padStart(6, '0')}`;
-      const exists = await this.prisma.client.findFirst({
-        where: { tenantId, code: candidate },
-      });
-      if (!exists) return candidate;
-    }
-
-    throw new BadRequestException('Unable to generate a unique client code');
-  }
 }

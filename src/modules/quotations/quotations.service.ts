@@ -19,7 +19,8 @@ import {
   EDITABLE_QUOTATION_STATUSES,
   QuotationStatus,
 } from './enums/quotation-status.enum';
-import { computeLine, computeTotals } from './utils/quotation-calculator';
+import { computeDocument } from './utils/quotation-calculator';
+import { roundExchangeRate } from '../../shared/utils/document-calculator';
 import { QuotationEventBus } from './events/quotation-event-bus';
 import { QuotationEntity } from './entities/quotation.entity';
 import { QuotationCreatedEvent } from './events/quotation-created.event';
@@ -33,6 +34,13 @@ import {
   QuotationMailService,
   SendQuotationMailResult,
 } from './services/quotation-mail.service';
+import { OrdersService } from '../orders/orders.service';
+import { DocumentNumberingService } from '../settings/services/document-numbering.service';
+import { NumberingDocumentType } from '../settings/enums/numbering-document-type.enum';
+import { EmailTemplateService } from '../settings/services/email-template.service';
+import { EmailTemplateType } from '../settings/enums/email-template-type.enum';
+import { DocumentAccessService } from '../documents/services/document-access.service';
+import { EmailTrackingService } from '../documents/services/email-tracking.service';
 
 type ResolvedLine = {
   position: number;
@@ -55,6 +63,11 @@ export class QuotationsService {
     private readonly quotationEventBus: QuotationEventBus,
     private readonly quotationPdfService: QuotationPdfService,
     private readonly quotationMailService: QuotationMailService,
+    private readonly ordersService: OrdersService,
+    private readonly numberingService: DocumentNumberingService,
+    private readonly emailTemplateService: EmailTemplateService,
+    private readonly documentAccessService: DocumentAccessService,
+    private readonly emailTrackingService: EmailTrackingService,
   ) {}
 
   private readonly quotationInclude = {
@@ -72,13 +85,16 @@ export class QuotationsService {
     await this.assertContact(tenantId, dto.clientId, dto.contactId);
     await this.assertPaymentTerm(tenantId, dto.paymentTermId);
 
-    const resolvedLines = await this.resolveLines(tenantId, dto.lines);
-    const totals = computeTotals(
-      resolvedLines,
+    const { lines: resolvedLines, totals } = await this.computeDocumentLines(
+      tenantId,
+      dto.lines,
       dto.discountPct ?? 0,
       dto.discountAmount ?? 0,
     );
-    const number = await this.generateNumber(tenantId, 'DEV');
+    const number = await this.numberingService.generateNext(
+      tenantId,
+      NumberingDocumentType.QUOTATION,
+    );
 
     const quotation = await this.prisma.quotation.create({
       data: {
@@ -90,7 +106,7 @@ export class QuotationsService {
         issueDate: new Date(dto.issueDate),
         expiryDate: dto.expiryDate ? new Date(dto.expiryDate) : null,
         currency: dto.currency ?? 'EUR',
-        exchangeRate: dto.exchangeRate ?? 1,
+        exchangeRate: roundExchangeRate(dto.exchangeRate ?? 1),
         paymentTermId: dto.paymentTermId,
         subtotalHt: totals.subtotalHt,
         discountPct: totals.discountPct,
@@ -197,25 +213,22 @@ export class QuotationsService {
     await this.assertContact(tenantId, existing.clientId, dto.contactId);
     await this.assertPaymentTerm(tenantId, dto.paymentTermId);
 
-    const lines = dto.lines
-      ? await this.resolveLines(tenantId, dto.lines)
-      : existing.lines.map((line, index) => ({
-          position: index + 1,
-          itemId: line.itemId ?? undefined,
-          description: line.description,
-          quantity: line.quantity,
-          unitPriceHt: line.unitPriceHt,
-          discountPct: line.discountPct,
-          discountAmount: line.discountAmount,
-          taxRateId: line.taxRateId,
-          lineTotalHt: line.lineTotalHt,
-          taxAmount: line.taxAmount,
-          lineTotalTtc: line.lineTotalTtc,
-        }));
-
     const discountPct = dto.discountPct ?? existing.discountPct;
     const discountAmount = dto.discountAmount ?? existing.discountAmount;
-    const totals = computeTotals(lines, discountPct, discountAmount);
+
+    const { lines, totals } = dto.lines
+      ? await this.computeDocumentLines(
+          tenantId,
+          dto.lines,
+          discountPct,
+          discountAmount,
+        )
+      : await this.computeDocumentFromExistingLines(
+          tenantId,
+          existing.lines,
+          discountPct,
+          discountAmount,
+        );
 
     let internalNotes = dto.internalNotes ?? existing.internalNotes;
     if (existing.status === QuotationStatus.SENT && existing.pdfUrl) {
@@ -242,7 +255,10 @@ export class QuotationsService {
                 ? new Date(dto.expiryDate)
                 : null,
           currency: dto.currency,
-          exchangeRate: dto.exchangeRate,
+          exchangeRate:
+            dto.exchangeRate !== undefined
+              ? roundExchangeRate(dto.exchangeRate)
+              : undefined,
           paymentTermId: dto.paymentTermId,
           subtotalHt: totals.subtotalHt,
           discountPct: totals.discountPct,
@@ -317,6 +333,12 @@ export class QuotationsService {
       dto.recipientEmail,
     );
 
+    const access = await this.documentAccessService.createToken(
+      tenantId,
+      'quotation',
+      id,
+    );
+
     let mailResult: SendQuotationMailResult = {
       sent: false,
       reason: 'no_recipient',
@@ -324,12 +346,36 @@ export class QuotationsService {
     if (recipientEmail) {
       const buffer = await this.quotationPdfService.read(tenantId, id);
       if (buffer) {
+        const mailContent = await this.emailTemplateService.render(
+          tenantId,
+          EmailTemplateType.QUOTATION_SEND,
+          {
+            documentNumber: quotation.number,
+            clientName: quotation.client.companyName,
+            downloadUrl: access.downloadUrl,
+            message: dto.message ?? '',
+          },
+        );
+
+        let html: string | undefined;
+        if (this.emailTrackingService.isEnabled()) {
+          const tracking = await this.emailTrackingService.createTracking(
+            tenantId,
+            'quotation',
+            id,
+            recipientEmail,
+          );
+          html = this.emailTrackingService.buildHtmlWithPixel(
+            mailContent.body.replace(/\n/g, '<br>'),
+            tracking.pixelUrl,
+          );
+        }
+
         mailResult = await this.quotationMailService.send({
           to: recipientEmail,
-          subject: `Devis ${quotation.number}`,
-          text:
-            dto.message ??
-            `Veuillez trouver ci-joint le devis ${quotation.number}.`,
+          subject: mailContent.subject,
+          text: `${mailContent.body}\n\nTéléchargement : ${access.downloadUrl}`,
+          html,
           pdf: buffer,
           filename: `${quotation.number}.pdf`,
         });
@@ -357,6 +403,7 @@ export class QuotationsService {
       message: 'Quotation marked as sent',
       recipientEmail,
       pdfUrl,
+      downloadUrl: access.downloadUrl,
       email: mailResult,
     };
   }
@@ -432,46 +479,12 @@ export class QuotationsService {
 
     const result = await this.prisma.$transaction(async (tx) => {
       if (dto.target === ConvertQuotationTarget.ORDER) {
-        const number = await this.generateDocumentNumberInTx(
-          tx,
+        const order = await this.ordersService.createFromQuotation(
+          quotation,
           tenantId,
-          'BC',
-          'order',
+          createdBy,
+          tx,
         );
-        const order = await tx.order.create({
-          data: {
-            tenantId,
-            number,
-            clientId: quotation.clientId,
-            quotationId: quotation.id,
-            status: 'draft',
-            issueDate: quotation.issueDate,
-            currency: quotation.currency,
-            subtotalHt: quotation.subtotalHt,
-            discountPct: quotation.discountPct,
-            discountAmount: quotation.discountAmount,
-            baseHt: quotation.baseHt,
-            totalTax: quotation.totalTax,
-            totalTtc: quotation.totalTtc,
-            createdBy,
-            lines: {
-              create: quotation.lines.map((line, index) => ({
-                tenantId,
-                position: index + 1,
-                itemId: line.itemId,
-                description: line.description,
-                quantity: line.quantity,
-                unitPriceHt: line.unitPriceHt,
-                discountPct: line.discountPct,
-                discountAmount: line.discountAmount,
-                lineTotalHt: line.lineTotalHt,
-                taxRateId: line.taxRateId,
-                taxAmount: line.taxAmount,
-                lineTotalTtc: line.lineTotalTtc,
-              })),
-            },
-          },
-        });
 
         await tx.quotation.update({
           where: { id },
@@ -481,11 +494,10 @@ export class QuotationsService {
         return { target: dto.target, targetId: order.id, document: order };
       }
 
-      const number = await this.generateDocumentNumberInTx(
-        tx,
+      const number = await this.numberingService.generateNext(
         tenantId,
-        'FAC',
-        'invoice',
+        NumberingDocumentType.INVOICE_DRAFT,
+        tx,
       );
       const invoice = await tx.invoice.create({
         data: {
@@ -551,12 +563,14 @@ export class QuotationsService {
     return result;
   }
 
-  private async resolveLines(
+  private async computeDocumentLines(
     tenantId: string,
     lines: QuotationLineDto[],
-  ): Promise<ResolvedLine[]> {
-    return Promise.all(
-      lines.map(async (line, index) => {
+    globalDiscountPct = 0,
+    globalDiscountAmount = 0,
+  ) {
+    const inputs = await Promise.all(
+      lines.map(async (line) => {
         const taxRate = await this.prisma.taxRate.findFirst({
           where: { id: line.taxRateId, tenantId, isActive: true },
         });
@@ -586,26 +600,72 @@ export class QuotationsService {
           }
         }
 
-        const computed = computeLine({
-          quantity: line.quantity,
-          unitPriceHt: line.unitPriceHt,
-          discountPct: line.discountPct,
-          discountAmount: line.discountAmount,
-          taxRate: taxRate.rate,
-        });
-
         return {
-          position: index + 1,
-          itemId: line.itemId,
-          description: line.description,
-          quantity: line.quantity,
-          unitPriceHt: line.unitPriceHt,
-          discountPct: line.discountPct ?? 0,
-          discountAmount: line.discountAmount ?? 0,
-          taxRateId: line.taxRateId,
-          ...computed,
+          meta: line,
+          input: {
+            quantity: line.quantity,
+            unitPriceHt: line.unitPriceHt,
+            discountPct: line.discountPct,
+            discountAmount: line.discountAmount,
+            taxRate: taxRate.rate,
+          },
         };
       }),
+    );
+
+    const { lines: computed, totals } = computeDocument(
+      inputs.map((entry) => entry.input),
+      globalDiscountPct,
+      globalDiscountAmount,
+    );
+
+    return {
+      totals,
+      lines: computed.map((line, index) => ({
+        position: index + 1,
+        itemId: inputs[index].meta.itemId,
+        description: inputs[index].meta.description,
+        quantity: inputs[index].meta.quantity,
+        unitPriceHt: inputs[index].meta.unitPriceHt,
+        discountPct: inputs[index].meta.discountPct ?? 0,
+        discountAmount: inputs[index].meta.discountAmount ?? 0,
+        taxRateId: inputs[index].meta.taxRateId,
+        lineTotalHt: line.lineTotalHt,
+        taxAmount: line.taxAmount,
+        lineTotalTtc: line.lineTotalTtc,
+      })) as ResolvedLine[],
+    };
+  }
+
+  private async computeDocumentFromExistingLines(
+    tenantId: string,
+    lines: Array<{
+      itemId: string | null;
+      description: string;
+      quantity: number;
+      unitPriceHt: number;
+      discountPct: number;
+      discountAmount: number;
+      taxRateId: string;
+    }>,
+    globalDiscountPct = 0,
+    globalDiscountAmount = 0,
+  ) {
+    const dtoLines: QuotationLineDto[] = lines.map((line) => ({
+      itemId: line.itemId ?? undefined,
+      description: line.description,
+      quantity: line.quantity,
+      unitPriceHt: line.unitPriceHt,
+      discountPct: line.discountPct,
+      discountAmount: line.discountAmount,
+      taxRateId: line.taxRateId,
+    }));
+
+    return this.computeDocumentLines(
+      tenantId,
+      dtoLines,
+      globalDiscountPct,
+      globalDiscountAmount,
     );
   }
 
@@ -721,6 +781,11 @@ export class QuotationsService {
     if (!client) {
       throw new BadRequestException('Client not found for this tenant');
     }
+    if (client.blockedForNewOrders) {
+      throw new BadRequestException(
+        'Client blocked for new quotations due to overdue invoices (mise en demeure)',
+      );
+    }
   }
 
   private async assertContact(
@@ -762,95 +827,4 @@ export class QuotationsService {
     });
   }
 
-  private async generateNumber(tenantId: string, prefix: string) {
-    return this.generateDocumentNumberInTx(
-      this.prisma,
-      tenantId,
-      prefix,
-      'quotation',
-    );
-  }
-
-  private async generateDocumentNumberInTx(
-    tx: Prisma.TransactionClient | PrismaService,
-    tenantId: string,
-    prefix: string,
-    kind: 'quotation' | 'order' | 'invoice',
-  ) {
-    const year = new Date().getFullYear();
-    const pattern = `${prefix}-${year}-`;
-
-    const latestNumber = await this.findLatestNumber(
-      tx,
-      tenantId,
-      pattern,
-      kind,
-    );
-
-    let seq = 1;
-    if (latestNumber) {
-      const parts = latestNumber.split('-');
-      const parsed = Number.parseInt(parts[parts.length - 1] ?? '', 10);
-      if (!Number.isNaN(parsed)) seq = parsed + 1;
-    }
-
-    for (let attempt = 0; attempt < 20; attempt += 1) {
-      const candidate = `${pattern}${String(seq + attempt).padStart(6, '0')}`;
-      const exists = await this.numberExists(tx, candidate, kind);
-      if (!exists) return candidate;
-    }
-
-    throw new BadRequestException(
-      'Unable to generate a unique document number',
-    );
-  }
-
-  private async findLatestNumber(
-    tx: Prisma.TransactionClient | PrismaService,
-    tenantId: string,
-    pattern: string,
-    kind: 'quotation' | 'order' | 'invoice',
-  ) {
-    if (kind === 'quotation') {
-      const latest = await tx.quotation.findFirst({
-        where: { tenantId, number: { startsWith: pattern } },
-        orderBy: { number: 'desc' },
-        select: { number: true },
-      });
-      return latest?.number;
-    }
-
-    if (kind === 'order') {
-      const latest = await tx.order.findFirst({
-        where: { tenantId, number: { startsWith: pattern } },
-        orderBy: { number: 'desc' },
-        select: { number: true },
-      });
-      return latest?.number;
-    }
-
-    const latest = await tx.invoice.findFirst({
-      where: { tenantId, number: { startsWith: pattern } },
-      orderBy: { number: 'desc' },
-      select: { number: true },
-    });
-    return latest?.number;
-  }
-
-  private async numberExists(
-    tx: Prisma.TransactionClient | PrismaService,
-    number: string,
-    kind: 'quotation' | 'order' | 'invoice',
-  ) {
-    if (kind === 'quotation') {
-      return tx.quotation.findUnique({
-        where: { number },
-        select: { id: true },
-      });
-    }
-    if (kind === 'order') {
-      return tx.order.findUnique({ where: { number }, select: { id: true } });
-    }
-    return tx.invoice.findUnique({ where: { number }, select: { id: true } });
-  }
 }

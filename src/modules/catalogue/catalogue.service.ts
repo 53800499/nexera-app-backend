@@ -9,10 +9,15 @@ import { UpdateCatalogCategoryDto } from './dto/update-catalog-category.dto';
 import { CreateCatalogItemDto } from './dto/create-catalog-item.dto';
 import { UpdateCatalogItemDto } from './dto/update-catalog-item.dto';
 import { CreateCatalogPriceDto } from './dto/create-catalog-price.dto';
+import { DocumentNumberingService } from '../settings/services/document-numbering.service';
+import { NumberingDocumentType } from '../settings/enums/numbering-document-type.enum';
 
 @Injectable()
 export class CatalogueService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private readonly numberingService: DocumentNumberingService,
+  ) {}
 
   async createCategory(dto: CreateCatalogCategoryDto, tenantId: string) {
     return this.prisma.catalogCategory.create({
@@ -224,30 +229,9 @@ export class CatalogueService {
       return explicit.trim().toUpperCase();
     }
 
-    const pattern = 'ART-';
-    const latest = await this.prisma.catalogItem.findFirst({
-      where: { tenantId, reference: { startsWith: pattern } },
-      orderBy: { reference: 'desc' },
-      select: { reference: true },
-    });
-
-    let seq = 1;
-    if (latest?.reference) {
-      const parsed = Number.parseInt(
-        latest.reference.replace(pattern, ''),
-        10,
-      );
-      if (!Number.isNaN(parsed)) seq = parsed + 1;
-    }
-
-    for (let attempt = 0; attempt < 20; attempt += 1) {
-      const candidate = `${pattern}${String(seq + attempt).padStart(6, '0')}`;
-      const existing = await this.prisma.catalogItem.findFirst({
-        where: { tenantId, reference: candidate },
-      });
-      if (!existing) return candidate;
-    }
-
-    throw new BadRequestException('Unable to generate a unique item reference');
+    return this.numberingService.generateNext(
+      tenantId,
+      NumberingDocumentType.CATALOG_ITEM,
+    );
   }
 }
