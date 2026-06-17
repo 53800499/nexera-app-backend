@@ -1,4 +1,5 @@
 import { AuthService } from './auth.service';
+import { AuthMessages } from './constants/auth-messages';
 
 describe('AuthService.register', () => {
   it('should create a tenant and seed default roles/permissions during company registration', async () => {
@@ -200,5 +201,92 @@ describe('AuthService.register', () => {
       data: { userId: 'user-1', roleId: role.id },
     });
     expect(result.user.tenantId).toBe(tenant.id);
+  });
+
+  it('rejects duplicate email with a clear message', async () => {
+    const prisma = {
+      user: {
+        findUnique: jest.fn().mockResolvedValue({ id: 'existing-user' }),
+      },
+    } as any;
+
+    const service = new AuthService(
+      prisma,
+      {} as any,
+      {} as any,
+      { seedTenantDefaults: jest.fn() } as any,
+    );
+
+    await expect(
+      service.register({
+        email: 'john@acme.test',
+        password: '12345678',
+        firstName: 'John',
+        lastName: 'Doe',
+        tenantName: 'Acme',
+      } as any),
+    ).rejects.toThrow(AuthMessages.EMAIL_ALREADY_EXISTS);
+  });
+
+  it('rejects registration without tenant name', async () => {
+    const prisma = {
+      user: { findUnique: jest.fn().mockResolvedValue(null) },
+      tenant: { findUnique: jest.fn().mockResolvedValue(null) },
+    } as any;
+
+    const service = new AuthService(
+      prisma,
+      {} as any,
+      {} as any,
+      { seedTenantDefaults: jest.fn() } as any,
+    );
+
+    await expect(
+      service.register({
+        email: 'john@acme.test',
+        password: '12345678',
+        firstName: 'John',
+        lastName: 'Doe',
+      } as any),
+    ).rejects.toThrow(AuthMessages.TENANT_NAME_REQUIRED);
+  });
+});
+
+describe('AuthService.login', () => {
+  const buildService = (user: any) => {
+    const prisma = {
+      user: {
+        findUnique: jest.fn().mockResolvedValue(user),
+      },
+    } as any;
+
+    return new AuthService(
+      prisma,
+      { sign: jest.fn().mockReturnValue('token') } as any,
+      { get: jest.fn((_, fallback) => fallback) } as any,
+      { seedTenantDefaults: jest.fn() } as any,
+    );
+  };
+
+  it('rejects unknown email with a clear message', async () => {
+    const service = buildService(null);
+
+    await expect(
+      service.login({ email: 'unknown@test.com', password: '12345678' }),
+    ).rejects.toThrow(AuthMessages.INVALID_CREDENTIALS);
+  });
+
+  it('rejects disabled account with a clear message', async () => {
+    const service = buildService({
+      id: 'user-1',
+      email: 'john@test.com',
+      password: '$2b$10$invalid',
+      isActive: false,
+      roles: [],
+    });
+
+    await expect(
+      service.login({ email: 'john@test.com', password: '12345678' }),
+    ).rejects.toThrow(AuthMessages.ACCOUNT_DISABLED);
   });
 });

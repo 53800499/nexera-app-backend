@@ -41,6 +41,11 @@ const SETTINGS_PERMISSIONS = [
   { code: 'manage:settings', description: 'Manage tenant settings (API guard)' },
 ];
 
+const SYNC_PERMISSIONS = [
+  { code: 'sync.read', description: 'Pull offline data (bootstrap + delta)' },
+  { code: 'sync.push', description: 'Push offline mutations to server' },
+];
+
 const API_ALIAS_PERMISSIONS = [
   { code: 'clients.read', description: 'View clients' },
   { code: 'catalogue.read', description: 'View catalogue' },
@@ -60,6 +65,7 @@ const ALL_NEW_PERMISSIONS = [
   ...REMINDER_PERMISSIONS,
   ...DASHBOARD_PERMISSIONS,
   ...SETTINGS_PERMISSIONS,
+  ...SYNC_PERMISSIONS,
   ...API_ALIAS_PERMISSIONS,
 ];
 

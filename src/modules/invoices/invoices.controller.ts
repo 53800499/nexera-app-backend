@@ -209,7 +209,7 @@ export class InvoicesController {
     description: `**RM-F05** — Référence la facture d'origine. Montant <= solde dû.
 Avoir total → facture originale \`cancelled\`.`,
   })
-  @ApiParam({ name: 'id', format: 'uuid', description: 'Facture d\'origine' })
+  @ApiParam({ name: 'id', format: 'uuid', description: "Facture d'origine" })
   @ApiBody({ type: CreateCreditNoteDto })
   @ApiCreatedResponse({ type: InvoiceResponseDto })
   createCreditNote(

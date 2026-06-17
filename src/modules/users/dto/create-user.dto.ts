@@ -14,10 +14,10 @@ export class CreateUserDto {
   @IsNotEmpty()
   email!: string;
 
+  @IsOptional()
   @IsString()
-  @IsNotEmpty()
-  @MinLength(6)
-  password!: string;
+  @MinLength(8)
+  password?: string;
 
   @IsString()
   @IsNotEmpty()
@@ -34,6 +34,10 @@ export class CreateUserDto {
   @IsBoolean()
   @IsOptional()
   isActive?: boolean;
+
+  @IsBoolean()
+  @IsOptional()
+  requestPasswordReset?: boolean;
 
   @IsUUID('4', { each: true })
   @IsArray()

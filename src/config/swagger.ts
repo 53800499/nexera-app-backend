@@ -17,6 +17,7 @@ export function setupSwagger(app: INestApplication) {
       },
       'access-token',
     )
+    .addTag('auth', 'Authentification — login, register, mot de passe oublié')
     .addTag('clients', 'UC-01 — Créer et gérer un client')
     .addTag('catalogue', 'UC-02 — Créer et gérer le catalogue')
     .addTag('quotations', 'UC-03 — Créer et gérer un devis')
@@ -30,10 +31,14 @@ export function setupSwagger(app: INestApplication) {
     .addTag('health', 'Sondes de disponibilité')
     .addTag('metrics', 'Métriques de performance API')
     .addTag('audit', 'Journal d\'audit immuable')
+    .addTag(
+      'sync',
+      'Offline v2 — bootstrap/pull gzip, push mutations (clients, catalogue, devis, BC, factures, paiements), manifest PWA, Background Sync',
+    )
     .build();
 
   const document = SwaggerModule.createDocument(app, config);
-  SwaggerModule.setup('api/docs', app, document, {
+  SwaggerModule.setup('docs', app, document, {
     swaggerOptions: { persistAuthorization: true },
   });
 }

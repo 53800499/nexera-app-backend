@@ -151,8 +151,24 @@ model User {
   updatedAt DateTime @updatedAt
 
   roles UserRole[]
+  passwordResetTokens PasswordResetToken[]
 
   @@map("users")
+}
+
+model PasswordResetToken {
+  id        String    @id @default(uuid())
+  userId    String    @map("user_id")
+  tokenHash String    @map("token_hash")
+  expiresAt DateTime  @map("expires_at")
+  usedAt    DateTime? @map("used_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([tokenHash])
+  @@map("password_reset_tokens")
 }
 
 model Role {
@@ -213,14 +229,37 @@ model RolePermission {
 }
 
 model Tenant {
-  id   String @id @default(uuid())
+  id   String     @id @default(uuid())
   name String
+  type TenantType @default(company)
 
   users User[]
+
+  cabinetLinks CabinetCompanyAccess[] @relation("CabinetTenant")
+  companyLinks CabinetCompanyAccess[] @relation("CompanyTenant")
 
   createdAt DateTime @default(now())
 
   @@map("tenants")
+}
+
+enum TenantType {
+  company
+  cabinet
+}
+
+model CabinetCompanyAccess {
+  id              String @id @default(uuid())
+  cabinetTenantId String @map("cabinet_tenant_id")
+  companyTenantId String @map("company_tenant_id")
+
+  cabinetTenant Tenant @relation("CabinetTenant", fields: [cabinetTenantId], references: [id])
+  companyTenant Tenant @relation("CompanyTenant", fields: [companyTenantId], references: [id])
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@unique([cabinetTenantId, companyTenantId])
+  @@map("cabinet_company_access")
 }
 
 model Client {
@@ -975,4 +1014,46 @@ model AuditLog {
   @@index([tenantId, createdAt])
   @@index([tenantId, entityType, entityId])
   @@map("audit_logs")
+}
+
+enum SyncMutationStatus {
+  applied
+  conflict
+  rejected
+  duplicate
+}
+
+model SyncDevice {
+  id         String    @id @default(uuid())
+  tenantId   String    @map("tenant_id")
+  userId     String    @map("user_id")
+  deviceId   String    @map("device_id")
+  deviceName String?   @map("device_name")
+  lastPullAt DateTime? @map("last_pull_at")
+  lastPushAt DateTime? @map("last_push_at")
+  createdAt  DateTime  @default(now()) @map("created_at")
+  updatedAt  DateTime  @updatedAt @map("updated_at")
+
+  @@unique([tenantId, userId, deviceId])
+  @@map("sync_devices")
+}
+
+model SyncMutationLog {
+  id         String             @id @default(uuid())
+  tenantId   String             @map("tenant_id")
+  userId     String             @map("user_id")
+  deviceId   String             @map("device_id")
+  batchId    String             @map("batch_id")
+  mutationId String             @map("mutation_id")
+  entityType String             @map("entity_type")
+  operation  String
+  entityId   String?            @map("entity_id")
+  status     SyncMutationStatus
+  errorCode  String?            @map("error_code")
+  payload    Json?
+  createdAt  DateTime           @default(now()) @map("created_at")
+
+  @@unique([tenantId, deviceId, mutationId])
+  @@index([tenantId, deviceId, batchId])
+  @@map("sync_mutation_logs")
 }

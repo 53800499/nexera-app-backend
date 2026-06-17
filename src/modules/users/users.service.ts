@@ -5,6 +5,7 @@ import {
 } from '@nestjs/common';
 import * as bcrypt from 'bcrypt';
 import { PrismaService } from '../../infrastructure/database/prisma.service';
+import { UserInvitationService } from '../auth/user-invitation.service';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { AssignRolesDto } from './dto/assign-role.dto';
@@ -20,6 +21,7 @@ export class UsersService {
   constructor(
     private prisma: PrismaService,
     private readonly userEventBus: UserEventBus,
+    private readonly userInvitation: UserInvitationService,
   ) {}
 
   private userInclude = {
@@ -59,7 +61,10 @@ export class UsersService {
       throw new NotFoundException('Tenant not found');
     }
 
-    const hashedPassword = await bcrypt.hash(dto.password, 10);
+    const plainPassword =
+      dto.password?.trim() || this.userInvitation.resolveDefaultPassword();
+    const hashedPassword = await bcrypt.hash(plainPassword, 10);
+    const requestPasswordReset = dto.requestPasswordReset ?? false;
 
     const user = await this.prisma.user.create({
       data: {
@@ -77,12 +82,33 @@ export class UsersService {
       new UserCreatedEvent(UserEntity.fromPrisma(user)),
     );
 
+    const invitation = await this.userInvitation.sendNewUserInvitation({
+      user: {
+        id: user.id,
+        email: user.email,
+        firstName: user.firstName,
+      },
+      tenantName: tenant.name,
+      initialPassword: plainPassword,
+      requestPasswordReset,
+    });
+
+    let result = this.omitPassword(user);
+
     if (dto.roleIds?.length) {
       await this.assignRolesInternal(user.id, dto.roleIds, targetTenantId);
-      return this.findOne(user.id, targetTenantId);
+      result = this.omitPassword(await this.findOne(user.id, targetTenantId));
     }
 
-    return user;
+    return {
+      ...result,
+      invitation,
+    };
+  }
+
+  private omitPassword<T extends { password?: string }>(user: T) {
+    const { password: _password, ...safeUser } = user;
+    return safeUser;
   }
 
   async findAll(tenantId: string) {

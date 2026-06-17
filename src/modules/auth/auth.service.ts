@@ -11,6 +11,7 @@ import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
 import { JwtPayload } from '../../shared/interfaces/jwt-payload.interface';
 import { SettingsBootstrapService } from '../settings/services/settings-bootstrap.service';
+import { AuthMessages } from './constants/auth-messages';
 
 @Injectable()
 export class AuthService {
@@ -46,6 +47,8 @@ export class AuthService {
     { code: 'dashboard.read', description: 'View commercial dashboard' },
     { code: 'settings.read', description: 'View tenant settings' },
     { code: 'manage:settings', description: 'Manage tenant settings (API guard)' },
+    { code: 'sync.read', description: 'Pull offline data (bootstrap + delta)' },
+    { code: 'sync.push', description: 'Push offline mutations to server' },
   ];
 
   private readonly defaultRoles = [
@@ -60,14 +63,15 @@ export class AuthService {
   ) {}
 
   async register(dto: RegisterDto) {
-    const { email, password, firstName, lastName, tenantId, tenantName } = dto;
+    const email = dto.email.toLowerCase().trim();
+    const { password, firstName, lastName, tenantId, tenantName } = dto;
 
     const existingUser = await this.prisma.user.findUnique({
       where: { email },
     });
 
     if (existingUser) {
-      throw new BadRequestException('User already exists');
+      throw new BadRequestException(AuthMessages.EMAIL_ALREADY_EXISTS);
     }
 
     const tenantNameValue = tenantName?.trim();
@@ -83,8 +87,11 @@ export class AuthService {
     }
 
     if (!tenant) {
+      if (tenantId && !tenantNameValue) {
+        throw new BadRequestException(AuthMessages.TENANT_NOT_FOUND);
+      }
       if (!tenantNameValue) {
-        throw new BadRequestException('Tenant name is required');
+        throw new BadRequestException(AuthMessages.TENANT_NAME_REQUIRED);
       }
 
       tenant = await this.prisma.tenant.create({
@@ -151,7 +158,7 @@ export class AuthService {
         },
       },
     });
-/* 0511857001416 */
+
     await Promise.all(
       roles.map((role) =>
         this.prisma.userRole.create({
@@ -236,7 +243,8 @@ export class AuthService {
   }
 
   async validateUser(dto: LoginDto) {
-    const { email, password } = dto;
+    const email = dto.email.toLowerCase().trim();
+    const { password } = dto;
 
     const user = await this.prisma.user.findUnique({
       where: { email },
@@ -257,14 +265,17 @@ export class AuthService {
       },
     });
 
-    if (!user || !user.isActive) {
-      throw new UnauthorizedException('Invalid credentials');
+    if (!user) {
+      throw new UnauthorizedException(AuthMessages.INVALID_CREDENTIALS);
     }
 
-    // Vérifier le mot de passe
+    if (!user.isActive) {
+      throw new UnauthorizedException(AuthMessages.ACCOUNT_DISABLED);
+    }
+
     const isPasswordValid = await bcrypt.compare(password, user.password);
     if (!isPasswordValid) {
-      throw new UnauthorizedException('Invalid credentials');
+      throw new UnauthorizedException(AuthMessages.INVALID_CREDENTIALS);
     }
 
     return user;
@@ -297,7 +308,7 @@ export class AuthService {
     });
 
     if (!user || !user.isActive) {
-      throw new UnauthorizedException('User no longer active');
+      throw new UnauthorizedException(AuthMessages.SESSION_EXPIRED);
     }
 
     return this.generateTokens(user);

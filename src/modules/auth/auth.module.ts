@@ -8,6 +8,10 @@ import { JwtStrategy } from '../../common/strategies/jwt.strategy';
 import { RefreshTokenStrategy } from '../../common/strategies/refresh.strategy';
 import { DatabaseModule } from '../../infrastructure/database/database.module';
 import { SettingsModule } from '../settings/settings.module';
+import { MailDeliveryService } from '../../shared/services/mail-delivery.service';
+import { PasswordController } from './password.controller';
+import { PasswordResetService } from './password-reset.service';
+import { UserInvitationService } from './user-invitation.service';
 
 @Module({
   imports: [
@@ -24,8 +28,15 @@ import { SettingsModule } from '../settings/settings.module';
       inject: [ConfigService],
     }),
   ],
-  controllers: [AuthController],
-  providers: [AuthService, JwtStrategy, RefreshTokenStrategy],
-  exports: [AuthService],
+  controllers: [AuthController, PasswordController],
+  providers: [
+    AuthService,
+    PasswordResetService,
+    UserInvitationService,
+    MailDeliveryService,
+    JwtStrategy,
+    RefreshTokenStrategy,
+  ],
+  exports: [AuthService, PasswordResetService, UserInvitationService],
 })
 export class AuthModule {}

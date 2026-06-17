@@ -9,31 +9,35 @@ import {
 } from 'class-validator';
 
 export class RegisterDto {
-  @IsEmail()
-  @IsNotEmpty()
-  email: string;
+  @IsEmail({}, { message: 'Adresse email invalide.' })
+  @IsNotEmpty({ message: 'L\'adresse email est obligatoire.' })
+  email!: string;
 
-  @IsString()
-  @MinLength(8)
-  @IsNotEmpty()
-  password: string;
+  @IsString({ message: 'Le mot de passe est obligatoire.' })
+  @MinLength(8, {
+    message: 'Le mot de passe doit contenir au moins 8 caractères.',
+  })
+  @IsNotEmpty({ message: 'Le mot de passe est obligatoire.' })
+  password!: string;
 
-  @IsString()
-  @IsNotEmpty()
-  @MaxLength(100)
-  firstName: string;
+  @IsString({ message: 'Le prénom est obligatoire.' })
+  @IsNotEmpty({ message: 'Le prénom est obligatoire.' })
+  @MaxLength(100, { message: 'Le prénom ne peut pas dépasser 100 caractères.' })
+  firstName!: string;
 
-  @IsString()
-  @IsNotEmpty()
-  @MaxLength(100)
-  lastName: string;
+  @IsString({ message: 'Le nom est obligatoire.' })
+  @IsNotEmpty({ message: 'Le nom est obligatoire.' })
+  @MaxLength(100, { message: 'Le nom ne peut pas dépasser 100 caractères.' })
+  lastName!: string;
 
   @IsOptional()
-  @IsUUID()
+  @IsUUID('4', { message: 'Identifiant d\'organisation invalide.' })
   tenantId?: string;
 
   @IsOptional()
-  @IsString()
-  @MaxLength(100)
+  @IsString({ message: 'Le nom de l\'entreprise est invalide.' })
+  @MaxLength(100, {
+    message: 'Le nom de l\'entreprise ne peut pas dépasser 100 caractères.',
+  })
   tenantName?: string;
 }
