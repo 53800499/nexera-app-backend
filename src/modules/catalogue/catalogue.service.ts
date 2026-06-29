@@ -4,12 +4,15 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/database/prisma.service';
+import { CrmMessages } from '../../shared/constants/crm-messages';
 import { CreateCatalogCategoryDto } from './dto/create-catalog-category.dto';
 import { UpdateCatalogCategoryDto } from './dto/update-catalog-category.dto';
 import { CreateCatalogItemDto } from './dto/create-catalog-item.dto';
 import { UpdateCatalogItemDto } from './dto/update-catalog-item.dto';
 import { CreateCatalogPriceDto } from './dto/create-catalog-price.dto';
+import { UpdateCatalogPriceDto } from './dto/update-catalog-price.dto';
 import { DocumentNumberingService } from '../settings/services/document-numbering.service';
+import { SettingsService } from '../settings/settings.service';
 import { NumberingDocumentType } from '../settings/enums/numbering-document-type.enum';
 
 @Injectable()
@@ -17,6 +20,7 @@ export class CatalogueService {
   constructor(
     private prisma: PrismaService,
     private readonly numberingService: DocumentNumberingService,
+    private readonly settingsService: SettingsService,
   ) {}
 
   async createCategory(dto: CreateCatalogCategoryDto, tenantId: string) {
@@ -46,7 +50,7 @@ export class CatalogueService {
       include: { children: true, parent: true, items: true },
     });
 
-    if (!category) throw new NotFoundException('Category not found');
+    if (!category) throw new NotFoundException(CrmMessages.catalogue.CATEGORY_NOT_FOUND);
     return category;
   }
 
@@ -66,7 +70,7 @@ export class CatalogueService {
 
   async createItem(dto: CreateCatalogItemDto, tenantId: string) {
     if (dto.priceHt < 0) {
-      throw new BadRequestException('Price HT cannot be negative');
+      throw new BadRequestException(CrmMessages.catalogue.PRICE_NEGATIVE);
     }
 
     const taxRate = await this.prisma.taxRate.findFirst({
@@ -74,9 +78,7 @@ export class CatalogueService {
     });
 
     if (!taxRate) {
-      throw new BadRequestException(
-        'Tax rate not found or inactive for this tenant (RM-A03)',
-      );
+      throw new BadRequestException(CrmMessages.catalogue.TAX_RATE_NOT_FOUND);
     }
 
     const reference = await this.generateReference(tenantId, dto.reference);
@@ -126,7 +128,7 @@ export class CatalogueService {
       include: { category: true, taxRate: true, prices: true },
     });
 
-    if (!item) throw new NotFoundException('Item not found');
+    if (!item) throw new NotFoundException(CrmMessages.catalogue.ITEM_NOT_FOUND);
     return item;
   }
 
@@ -134,7 +136,7 @@ export class CatalogueService {
     const item = await this.findOneItem(id, tenantId);
 
     if (dto.priceHt !== undefined && dto.priceHt < 0) {
-      throw new BadRequestException('Price HT cannot be negative');
+      throw new BadRequestException(CrmMessages.catalogue.PRICE_NEGATIVE);
     }
 
     if (dto.defaultTaxRateId) {
@@ -143,9 +145,7 @@ export class CatalogueService {
       });
 
       if (!taxRate) {
-        throw new BadRequestException(
-          'Tax rate not found or inactive for this tenant (RM-A03)',
-        );
+        throw new BadRequestException(CrmMessages.catalogue.TAX_RATE_NOT_FOUND);
       }
     }
 
@@ -155,7 +155,7 @@ export class CatalogueService {
       });
 
       if (exists) {
-        throw new BadRequestException('Item reference already exists');
+        throw new BadRequestException(CrmMessages.catalogue.REFERENCE_EXISTS);
       }
     }
 
@@ -179,9 +179,7 @@ export class CatalogueService {
     ]);
 
     if (usedInQuotation || usedInOrder || usedInInvoice) {
-      throw new BadRequestException(
-        'Item is used in transactions; archive only (RM-A04).',
-      );
+      throw new BadRequestException(CrmMessages.catalogue.ITEM_USED_IN_TRANSACTIONS);
     }
 
     await this.prisma.catalogItem.update({
@@ -195,7 +193,9 @@ export class CatalogueService {
   async createPrice(itemId: string, tenantId: string, dto: CreateCatalogPriceDto) {
     await this.findOneItem(itemId, tenantId);
 
-    if (dto.priceHt < 0) throw new BadRequestException('Price HT cannot be negative');
+    if (dto.priceHt < 0) throw new BadRequestException(CrmMessages.catalogue.PRICE_NEGATIVE);
+
+    const tenantSettings = await this.settingsService.getTenantSettings(tenantId);
 
     return this.prisma.catalogItemPrice.create({
       data: {
@@ -204,7 +204,7 @@ export class CatalogueService {
         clientId: dto.clientId,
         groupName: dto.groupName,
         priceHt: dto.priceHt,
-        currency: dto.currency ?? 'EUR',
+        currency: dto.currency ?? tenantSettings.primaryCurrency,
         validFrom: dto.validFrom ? new Date(dto.validFrom) : null,
         validTo: dto.validTo ? new Date(dto.validTo) : null,
         isActive: dto.isActive ?? true,
@@ -216,7 +216,62 @@ export class CatalogueService {
     await this.findOneItem(itemId, tenantId);
     return this.prisma.catalogItemPrice.findMany({
       where: { itemId, tenantId },
+      include: {
+        client: { select: { id: true, companyName: true, code: true } },
+      },
       orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  async findOnePrice(priceId: string, tenantId: string) {
+    const price = await this.prisma.catalogItemPrice.findFirst({
+      where: { id: priceId, tenantId },
+      include: {
+        client: { select: { id: true, companyName: true, code: true } },
+        item: { select: { id: true, name: true, reference: true, isArchived: true } },
+      },
+    });
+
+    if (!price) {
+      throw new NotFoundException(CrmMessages.catalogue.PRICE_NOT_FOUND);
+    }
+
+    return price;
+  }
+
+  async updatePrice(
+    priceId: string,
+    tenantId: string,
+    dto: UpdateCatalogPriceDto,
+  ) {
+    const price = await this.findOnePrice(priceId, tenantId);
+
+    if (dto.priceHt !== undefined && dto.priceHt < 0) {
+      throw new BadRequestException(CrmMessages.catalogue.PRICE_NEGATIVE);
+    }
+
+    return this.prisma.catalogItemPrice.update({
+      where: { id: price.id },
+      data: {
+        priceHt: dto.priceHt,
+        currency: dto.currency,
+        validFrom:
+          dto.validFrom !== undefined
+            ? dto.validFrom
+              ? new Date(dto.validFrom)
+              : null
+            : undefined,
+        validTo:
+          dto.validTo !== undefined
+            ? dto.validTo
+              ? new Date(dto.validTo)
+              : null
+            : undefined,
+        isActive: dto.isActive,
+      },
+      include: {
+        client: { select: { id: true, companyName: true, code: true } },
+      },
     });
   }
 
@@ -225,7 +280,7 @@ export class CatalogueService {
       const existing = await this.prisma.catalogItem.findFirst({
         where: { tenantId, reference: explicit.trim().toUpperCase() },
       });
-      if (existing) throw new BadRequestException('Item reference already exists');
+      if (existing) throw new BadRequestException(CrmMessages.catalogue.REFERENCE_EXISTS);
       return explicit.trim().toUpperCase();
     }
 

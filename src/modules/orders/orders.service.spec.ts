@@ -4,6 +4,7 @@ import { PrismaService } from '../../infrastructure/database/prisma.service';
 import { OrderEventBus } from './events/order-event-bus';
 import { InvoicesService } from '../invoices/invoices.service';
 import { DocumentNumberingService } from '../settings/services/document-numbering.service';
+import { SettingsService } from '../settings/settings.service';
 
 describe('OrdersService', () => {
   let service: OrdersService;
@@ -21,6 +22,10 @@ describe('OrdersService', () => {
         {
           provide: DocumentNumberingService,
           useValue: { generateNext: jest.fn() },
+        },
+        {
+          provide: SettingsService,
+          useValue: { getTenantSettings: jest.fn() },
         },
       ],
     }).compile();

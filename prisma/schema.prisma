@@ -233,6 +233,9 @@ model Tenant {
   name String
   type TenantType @default(company)
 
+  /// Code d'invitation partagé aux entreprises (type cabinet uniquement).
+  cabinetInviteCode String? @unique @map("cabinet_invite_code")
+
   users User[]
 
   cabinetLinks CabinetCompanyAccess[] @relation("CabinetTenant")
@@ -252,6 +255,9 @@ model CabinetCompanyAccess {
   id              String @id @default(uuid())
   cabinetTenantId String @map("cabinet_tenant_id")
   companyTenantId String @map("company_tenant_id")
+
+  /// Droits accordés par l'entreprise au cabinet sur ce dossier.
+  permissions String[] @default(["cabinet.scope.invoices.read"])
 
   cabinetTenant Tenant @relation("CabinetTenant", fields: [cabinetTenantId], references: [id])
   companyTenant Tenant @relation("CompanyTenant", fields: [companyTenantId], references: [id])

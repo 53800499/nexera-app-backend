@@ -15,6 +15,7 @@ import type { Response } from 'express';
 import {
   ApiBearerAuth,
   ApiOperation,
+  ApiParam,
   ApiQuery,
   ApiTags,
 } from '@nestjs/swagger';
@@ -92,12 +93,19 @@ export class QuotationsController {
     res.set({
       'Content-Type': 'application/pdf',
       'Content-Disposition': `inline; filename="${filename}"`,
+      'Cache-Control': 'private, max-age=60',
     });
     res.send(buffer);
   }
 
   @Get(':id/preview')
   @Permissions('quotations.read')
+  @ApiOperation({
+    summary: 'Prévisualiser un devis',
+    description:
+      'Génère le PDF si nécessaire et retourne les métadonnées pour afficher une preview (iframe sur pdfUrl).',
+  })
+  @ApiParam({ name: 'id', format: 'uuid' })
   preview(
     @Param('id') id: string,
     @Request() req: { user: { tenantId: string } },

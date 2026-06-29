@@ -10,6 +10,7 @@ import { EmailTemplateService } from '../settings/services/email-template.servic
 import { DocumentAccessService } from '../documents/services/document-access.service';
 import { EmailTrackingService } from '../documents/services/email-tracking.service';
 import { AuditService } from '../audit/audit.service';
+import { SettingsService } from '../settings/settings.service';
 
 describe('QuotationsService', () => {
   let service: QuotationsService;
@@ -44,6 +45,10 @@ describe('QuotationsService', () => {
         {
           provide: EmailTemplateService,
           useValue: { render: jest.fn() },
+        },
+        {
+          provide: SettingsService,
+          useValue: { getTenantSettings: jest.fn() },
         },
         {
           provide: DocumentAccessService,

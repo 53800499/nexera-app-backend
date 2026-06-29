@@ -17,7 +17,14 @@ export function setupSwagger(app: INestApplication) {
       },
       'access-token',
     )
-    .addTag('auth', 'Authentification — login, register, mot de passe oublié')
+    .addTag(
+      'auth',
+      'Authentification — inscription, connexion, refresh, mot de passe oublié (`POST /forgot-password`), réinitialisation (`POST /reset-password`)',
+    )
+    .addTag(
+      'profile',
+      'Profil utilisateur — consulter et modifier son compte (JWT requis)',
+    )
     .addTag('clients', 'UC-01 — Créer et gérer un client')
     .addTag('catalogue', 'UC-02 — Créer et gérer le catalogue')
     .addTag('quotations', 'UC-03 — Créer et gérer un devis')
@@ -34,6 +41,10 @@ export function setupSwagger(app: INestApplication) {
     .addTag(
       'sync',
       'Offline v2 — bootstrap/pull gzip, push mutations (clients, catalogue, devis, BC, factures, paiements), manifest PWA, Background Sync',
+    )
+    .addTag(
+      'cabinet',
+      'Espace Cabinet ↔ Entreprise — liaison multi-dossiers : autorisation (`POST /cabinet/access`), révocation (`DELETE /cabinet/access`), liste cabinets (`GET /cabinet/access`), dossiers cabinet (`GET /cabinet/companies`), factures par dossier (`GET /cabinet/companies/:companyTenantId/invoices`). Voir descriptions détaillées sur chaque endpoint.',
     )
     .build();
 

@@ -3,7 +3,7 @@ import { AuthMessages } from './constants/auth-messages';
 
 describe('AuthService.register', () => {
   it('should create a tenant and seed default roles/permissions during company registration', async () => {
-    const tenant = { id: 'tenant-1', name: 'Acme' };
+    const tenant = { id: 'tenant-1', name: 'Acme', type: 'company' };
 
     const prisma = {
       tenant: {
@@ -53,6 +53,7 @@ describe('AuthService.register', () => {
               tenantId: tenant.id,
               isActive: true,
               isSuperAdmin: true,
+              tenant: { type: 'company' },
               roles: [
                 {
                   role: {
@@ -101,7 +102,7 @@ describe('AuthService.register', () => {
     } as any);
 
     expect(prisma.tenant.create).toHaveBeenCalledWith({
-      data: { name: 'Acme' },
+      data: { name: 'Acme', type: 'company' },
     });
     expect(prisma.role.create).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -114,7 +115,7 @@ describe('AuthService.register', () => {
   });
 
   it('should attach the new user to a tenant role during registration', async () => {
-    const tenant = { id: 'tenant-1', name: 'Acme' };
+    const tenant = { id: 'tenant-1', name: 'Acme', type: 'company' };
     const role = { id: 'role-1', code: 'OWNER', tenantId: tenant.id };
 
     const prisma = {
@@ -146,6 +147,7 @@ describe('AuthService.register', () => {
               tenantId: tenant.id,
               isActive: true,
               isSuperAdmin: false,
+              tenant: { type: 'company' },
               roles: [],
             };
           }

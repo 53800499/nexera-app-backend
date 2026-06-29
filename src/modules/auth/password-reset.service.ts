@@ -10,9 +10,7 @@ import { PrismaService } from '../../infrastructure/database/prisma.service';
 import { MailDeliveryService } from '../../shared/services/mail-delivery.service';
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
-
-const GENERIC_FORGOT_MESSAGE =
-  'If an account exists for this email, password reset instructions have been sent.';
+import { AuthMessages } from './constants/auth-messages';
 
 @Injectable()
 export class PasswordResetService {
@@ -33,13 +31,13 @@ export class PasswordResetService {
     });
 
     if (!user || !user.isActive) {
-      return { message: GENERIC_FORGOT_MESSAGE };
+      return { message: AuthMessages.FORGOT_PASSWORD_SENT };
     }
 
     const rawToken = await this.issueResetToken(user.id);
     await this.sendResetEmail(user, rawToken);
 
-    return { message: GENERIC_FORGOT_MESSAGE };
+    return { message: AuthMessages.FORGOT_PASSWORD_SENT };
   }
 
   async issueResetToken(userId: string): Promise<string> {
@@ -112,7 +110,7 @@ export class PasswordResetService {
     });
 
     if (!record || !record.user.isActive) {
-      throw new BadRequestException('Invalid or expired reset token');
+      throw new BadRequestException(AuthMessages.RESET_TOKEN_INVALID);
     }
 
     const hashedPassword = await bcrypt.hash(dto.password, 10);
@@ -139,7 +137,7 @@ export class PasswordResetService {
       }),
     ]);
 
-    return { message: 'Password updated successfully' };
+    return { message: AuthMessages.PASSWORD_UPDATED };
   }
 
   private hashToken(token: string): string {

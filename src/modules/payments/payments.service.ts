@@ -5,6 +5,7 @@ import {
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../infrastructure/database/prisma.service';
+import { CrmMessages } from '../../shared/constants/crm-messages';
 import {
   roundDownCent,
   roundExchangeRate,
@@ -70,7 +71,7 @@ export class PaymentsService {
     });
 
     if (!client) {
-      throw new NotFoundException('Client not found');
+      throw new NotFoundException(CrmMessages.payment.CLIENT_NOT_FOUND);
     }
 
     const openInvoices = await this.findOpenInvoicesForClient(clientId, tenantId);
@@ -140,7 +141,7 @@ export class PaymentsService {
     });
 
     if (!payment) {
-      throw new NotFoundException('Payment not found');
+      throw new NotFoundException(CrmMessages.payment.NOT_FOUND);
     }
 
     return this.toPaymentResponse(payment);
@@ -152,7 +153,7 @@ export class PaymentsService {
     });
 
     if (!client) {
-      throw new NotFoundException('Client not found');
+      throw new NotFoundException(CrmMessages.payment.CLIENT_NOT_FOUND);
     }
 
     const currency = dto.currency ?? client.defaultCurrency;
@@ -269,7 +270,7 @@ export class PaymentsService {
 
     if (dto.amount > invoice.amountDue + 0.01) {
       throw new BadRequestException(
-        `Payment exceeds amount due (${invoice.amountDue})`,
+        CrmMessages.payment.EXCEEDS_AMOUNT_DUE(invoice.amountDue),
       );
     }
 
@@ -301,18 +302,18 @@ export class PaymentsService {
     });
 
     if (!payment) {
-      throw new NotFoundException('Payment not found');
+      throw new NotFoundException(CrmMessages.payment.NOT_FOUND);
     }
 
     if (payment.isCancelled) {
-      throw new BadRequestException('Payment is already cancelled');
+      throw new BadRequestException(CrmMessages.payment.ALREADY_CANCELLED);
     }
 
     for (const advance of payment.advances) {
       const used = advance.originalAmount - advance.remainingAmount;
       if (used > 0.01) {
         throw new BadRequestException(
-          'Cannot cancel payment: client advance has already been applied',
+          CrmMessages.payment.CANNOT_CANCEL_APPLIED_ADVANCE,
         );
       }
     }
@@ -377,9 +378,7 @@ export class PaymentsService {
     }
 
     if (!dto.imputations?.length) {
-      throw new BadRequestException(
-        'Manual allocation requires at least one imputation',
-      );
+      throw new BadRequestException(CrmMessages.payment.ALLOCATION_REQUIRED);
     }
 
     const invoiceMap = new Map(openInvoices.map((inv) => [inv.id, inv]));
@@ -389,13 +388,13 @@ export class PaymentsService {
       const invoice = invoiceMap.get(imp.invoiceId);
       if (!invoice) {
         throw new BadRequestException(
-          `Invoice ${imp.invoiceId} is not open for this client`,
+          CrmMessages.payment.INVOICE_NOT_OPEN(imp.invoiceId),
         );
       }
 
       if (imp.amount > invoice.amountDue + 0.01) {
         throw new BadRequestException(
-          `Imputation exceeds amount due on invoice ${invoice.number}`,
+          CrmMessages.payment.IMPUTATION_EXCEEDS_DUE(invoice.number),
         );
       }
 
@@ -412,9 +411,7 @@ export class PaymentsService {
     }
 
     if (allocatedInPaymentCurrency > dto.amount + 0.01) {
-      throw new BadRequestException(
-        'Total imputations exceed payment amount',
-      );
+      throw new BadRequestException(CrmMessages.payment.IMPUTATIONS_EXCEED_PAYMENT);
     }
 
     return dto.imputations.map((imp) => ({
@@ -442,21 +439,21 @@ export class PaymentsService {
     });
 
     if (!invoice) {
-      throw new NotFoundException('Invoice not found');
+      throw new NotFoundException(CrmMessages.payment.INVOICE_NOT_FOUND);
     }
 
     if (invoice.invoiceType === InvoiceType.PROFORMA) {
-      throw new BadRequestException('Proforma invoices are not payable');
+      throw new BadRequestException(CrmMessages.payment.PROFORMA_NOT_PAYABLE);
     }
 
     if (
       !PAYABLE_INVOICE_STATUSES.includes(invoice.status as InvoiceStatus)
     ) {
-      throw new BadRequestException('Invoice is not open for payment');
+      throw new BadRequestException(CrmMessages.payment.INVOICE_NOT_OPEN_FOR_PAYMENT);
     }
 
     if (invoice.amountDue <= 0.01) {
-      throw new BadRequestException('Invoice has no amount due');
+      throw new BadRequestException(CrmMessages.payment.NO_AMOUNT_DUE);
     }
 
     return invoice;

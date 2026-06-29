@@ -8,11 +8,13 @@ import {
   generateDocumentPdf,
 } from '../../../shared/pdf/document-pdf.builder';
 import { PdfAddress } from '../../../shared/pdf/document-pdf.types';
+import { QuotationStatus } from '../enums/quotation-status.enum';
 
 type QuotationForPdf = {
   id: string;
   tenantId: string;
   number: string;
+  status: string;
   issueDate: Date;
   expiryDate: Date | null;
   currency: string;
@@ -87,6 +89,10 @@ export class QuotationPdfService {
     const taxBreakdown = buildTaxBreakdown(lines, quotation.baseHt);
     const companyAddress = settings.companyAddress as PdfAddress | null;
 
+    const contactName = quotation.contact
+      ? `${quotation.contact.firstName} ${quotation.contact.lastName}`.trim()
+      : null;
+
     return generateDocumentPdf({
       documentType: 'quotation',
       documentLabel: 'Devis',
@@ -94,6 +100,8 @@ export class QuotationPdfService {
       issueDate: quotation.issueDate,
       dueDate: quotation.expiryDate,
       currency: quotation.currency,
+      statusLabel:
+        quotation.status === QuotationStatus.DRAFT ? 'Brouillon' : null,
       seller: {
         name: tenant?.name ?? 'Entreprise',
         legalName: settings.legalName,
@@ -110,6 +118,7 @@ export class QuotationPdfService {
       buyer: {
         companyName: quotation.client.companyName,
         tradeName: quotation.client.tradeName,
+        contactName,
         siret: quotation.client.siret,
         taxId: quotation.client.taxId,
         billingAddress: quotation.client.billingAddress as PdfAddress | null,
@@ -151,6 +160,14 @@ export class QuotationPdfService {
       return await fs.readFile(this.getStoragePath(tenantId, quotationId));
     } catch {
       return null;
+    }
+  }
+
+  async removeCached(tenantId: string, quotationId: string) {
+    try {
+      await fs.unlink(this.getStoragePath(tenantId, quotationId));
+    } catch {
+      // fichier absent — rien à invalider
     }
   }
 }

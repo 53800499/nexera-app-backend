@@ -22,6 +22,7 @@ import { UpdateCatalogCategoryDto } from './dto/update-catalog-category.dto';
 import { CreateCatalogItemDto } from './dto/create-catalog-item.dto';
 import { UpdateCatalogItemDto } from './dto/update-catalog-item.dto';
 import { CreateCatalogPriceDto } from './dto/create-catalog-price.dto';
+import { UpdateCatalogPriceDto } from './dto/update-catalog-price.dto';
 
 @ApiTags('catalogue')
 @ApiBearerAuth('access-token')
@@ -159,5 +160,26 @@ export class CatalogueController {
     @Request() req: { user: { tenantId: string } },
   ) {
     return this.catalogueService.findPrices(id, req.user.tenantId);
+  }
+
+  @Get('prices/:priceId')
+  @Permissions('catalogue.read')
+  @ApiOperation({ summary: 'Détail d’un tarif catalogue' })
+  findOnePrice(
+    @Param('priceId') priceId: string,
+    @Request() req: { user: { tenantId: string } },
+  ) {
+    return this.catalogueService.findOnePrice(priceId, req.user.tenantId);
+  }
+
+  @Patch('prices/:priceId')
+  @Permissions('manage:catalogue')
+  @ApiOperation({ summary: 'Modifier un tarif catalogue' })
+  updatePrice(
+    @Param('priceId') priceId: string,
+    @Body() dto: UpdateCatalogPriceDto,
+    @Request() req: { user: { tenantId: string } },
+  ) {
+    return this.catalogueService.updatePrice(priceId, req.user.tenantId, dto);
   }
 }

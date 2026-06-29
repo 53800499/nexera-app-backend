@@ -57,6 +57,13 @@ const API_ALIAS_PERMISSIONS = [
   { code: 'manage:clients', description: 'Manage clients (API guard)' },
 ];
 
+const CABINET_PERMISSIONS = [
+  {
+    code: 'cabinet.read',
+    description: 'Espace cabinet — consulter les entreprises liées',
+  },
+];
+
 const ALL_NEW_PERMISSIONS = [
   ...QUOTATION_PERMISSIONS,
   ...ORDER_PERMISSIONS,
@@ -67,9 +74,10 @@ const ALL_NEW_PERMISSIONS = [
   ...SETTINGS_PERMISSIONS,
   ...SYNC_PERMISSIONS,
   ...API_ALIAS_PERMISSIONS,
+  ...CABINET_PERMISSIONS,
 ];
 
-const ADMIN_ROLE_CODES = ['ADMIN', 'CEO'];
+const ADMIN_ROLE_CODES = ['ADMIN', 'CEO', 'CABINET_ADMIN'];
 
 async function main() {
   const connectionString = process.env.DATABASE_URL;

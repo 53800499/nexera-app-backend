@@ -1,0 +1,12 @@
+[33m6440fdf[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmain[m[33m, [m[1;31morigin/main[m[33m)[m HEAD@{0}: reset: moving to HEAD~1
+[33mf1e302c[m HEAD@{1}: commit: feat : gestion des sync après offline et ajout des endpoints de reinitialisation de password
+[33m6440fdf[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmain[m[33m, [m[1;31morigin/main[m[33m)[m HEAD@{2}: reset: moving to 6440fdf
+[33m6440fdf[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmain[m[33m, [m[1;31morigin/main[m[33m)[m HEAD@{3}: reset: moving to 6440fdf
+[33ma582491[m HEAD@{4}: checkout: moving from main to main
+[33ma582491[m HEAD@{5}: commit: feat : création des endpoints a chaque type d'utilisateur
+[33m6440fdf[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmain[m[33m, [m[1;31morigin/main[m[33m)[m HEAD@{6}: commit: feat : Script de test
+[33m3b765a8[m HEAD@{7}: commit: feat : Ajout du module Audit
+[33mbccdfbf[m HEAD@{8}: commit: feat: Gesions des modules devis (UC-03), commandes (UC-04), factures (UC-05), encaissements (UC-06), relances (UC-07), tableau de bord (UC-08), paramétrage.
+[33m5190767[m HEAD@{9}: commit: feat: Ajout de la documentation
+[33mc14b000[m HEAD@{10}: commit: feat: gestion des catalogues
+[33m35de63f[m HEAD@{11}: commit (initial): feat: Ajout des module : Auth(role, permission+ ...), user, tenant

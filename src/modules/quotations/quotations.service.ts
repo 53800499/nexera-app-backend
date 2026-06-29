@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../infrastructure/database/prisma.service';
+import { CrmMessages } from '../../shared/constants/crm-messages';
 import { CreateQuotationDto } from './dto/create-quotation.dto';
 import { UpdateQuotationDto } from './dto/update-quotation.dto';
 import { SendQuotationDto } from './dto/send-quotation.dto';
@@ -39,11 +40,13 @@ import { DEFAULT_PAGE_SIZE } from '../../shared/utils/pagination.util';
 import { DocumentNumberingService } from '../settings/services/document-numbering.service';
 import { NumberingDocumentType } from '../settings/enums/numbering-document-type.enum';
 import { EmailTemplateService } from '../settings/services/email-template.service';
+import { SettingsService } from '../settings/settings.service';
 import { EmailTemplateType } from '../settings/enums/email-template-type.enum';
 import { DocumentAccessService } from '../documents/services/document-access.service';
 import { EmailTrackingService } from '../documents/services/email-tracking.service';
 import { AuditService } from '../audit/audit.service';
 import { AuditAction, AuditEntityType } from '../audit/enums/audit.enum';
+import { buildDocumentPreviewResponse } from '../../shared/pdf/document-preview.util';
 
 type ResolvedLine = {
   position: number;
@@ -69,6 +72,7 @@ export class QuotationsService {
     private readonly ordersService: OrdersService,
     private readonly numberingService: DocumentNumberingService,
     private readonly emailTemplateService: EmailTemplateService,
+    private readonly settingsService: SettingsService,
     private readonly documentAccessService: DocumentAccessService,
     private readonly emailTrackingService: EmailTrackingService,
     private readonly auditService: AuditService,
@@ -99,6 +103,7 @@ export class QuotationsService {
       tenantId,
       NumberingDocumentType.QUOTATION,
     );
+    const tenantSettings = await this.settingsService.getTenantSettings(tenantId);
 
     const quotation = await this.prisma.quotation.create({
       data: {
@@ -109,7 +114,7 @@ export class QuotationsService {
         status: QuotationStatus.DRAFT,
         issueDate: new Date(dto.issueDate),
         expiryDate: dto.expiryDate ? new Date(dto.expiryDate) : null,
-        currency: dto.currency ?? 'EUR',
+        currency: dto.currency ?? tenantSettings.primaryCurrency,
         exchangeRate: roundExchangeRate(dto.exchangeRate ?? 1),
         paymentTermId: dto.paymentTermId,
         subtotalHt: totals.subtotalHt,
@@ -206,7 +211,7 @@ export class QuotationsService {
     });
 
     if (!quotation) {
-      throw new NotFoundException('Quotation not found');
+      throw new NotFoundException(CrmMessages.quotation.NOT_FOUND);
     }
 
     return quotation;
@@ -218,9 +223,7 @@ export class QuotationsService {
     if (
       !EDITABLE_QUOTATION_STATUSES.includes(existing.status as QuotationStatus)
     ) {
-      throw new BadRequestException(
-        'Quotation cannot be modified in its current status',
-      );
+      throw new BadRequestException(CrmMessages.quotation.NOT_EDITABLE);
     }
 
     await this.assertContact(tenantId, existing.clientId, dto.contactId);
@@ -319,6 +322,8 @@ export class QuotationsService {
       changes: { totalTtc: updated.totalTtc },
     });
 
+    await this.quotationPdfService.removeCached(tenantId, id);
+
     return updated;
   }
 
@@ -326,7 +331,7 @@ export class QuotationsService {
     const quotation = await this.findOne(id, tenantId);
 
     if (quotation.status !== QuotationStatus.DRAFT) {
-      throw new BadRequestException('Only draft quotations can be deleted');
+      throw new BadRequestException(CrmMessages.quotation.ONLY_DRAFT_DELETE);
     }
 
     await this.prisma.quotationLine.deleteMany({ where: { quotationId: id } });
@@ -350,7 +355,7 @@ export class QuotationsService {
     const quotation = await this.findOne(id, tenantId);
 
     if (quotation.status !== QuotationStatus.DRAFT) {
-      throw new BadRequestException('Only draft quotations can be sent');
+      throw new BadRequestException(CrmMessages.quotation.ONLY_DRAFT_SEND);
     }
 
     const pdfUrl = this.quotationPdfService.getPublicUrl(id);
@@ -450,10 +455,25 @@ export class QuotationsService {
     const pdfUrl =
       quotation.pdfUrl ?? this.quotationPdfService.getPublicUrl(id);
 
-    return {
-      quotation,
+    const preview = buildDocumentPreviewResponse(
+      {
+        documentType: 'quotation',
+        documentLabel: 'Devis',
+        number: quotation.number,
+        status: quotation.status,
+        issueDate: quotation.issueDate,
+        dueDate: quotation.expiryDate,
+        currency: quotation.currency,
+        totalTtc: quotation.totalTtc,
+        clientName: quotation.client.companyName,
+        lineCount: quotation.lines.length,
+      },
       pdfUrl,
-      previewReady: true,
+    );
+
+    return {
+      ...preview,
+      quotation,
     };
   }
 
@@ -463,7 +483,7 @@ export class QuotationsService {
 
     const buffer = await this.quotationPdfService.read(tenantId, id);
     if (!buffer) {
-      throw new NotFoundException('PDF not found for this quotation');
+      throw new NotFoundException(CrmMessages.quotation.PDF_NOT_FOUND);
     }
 
     return {
@@ -508,9 +528,7 @@ export class QuotationsService {
     const quotation = await this.findOne(id, tenantId);
 
     if (quotation.status !== QuotationStatus.ACCEPTED) {
-      throw new BadRequestException(
-        'Only accepted quotations can be converted',
-      );
+      throw new BadRequestException(CrmMessages.quotation.ONLY_ACCEPTED_CONVERT);
     }
 
     const result = await this.prisma.$transaction(async (tx) => {
@@ -622,7 +640,7 @@ export class QuotationsService {
 
         if (!taxRate) {
           throw new BadRequestException(
-            `Tax rate not found: ${line.taxRateId}`,
+            CrmMessages.quotation.TAX_RATE_NOT_FOUND(line.taxRateId),
           );
         }
 
@@ -633,14 +651,14 @@ export class QuotationsService {
 
           if (!item) {
             throw new BadRequestException(
-              `Catalog item not found: ${line.itemId}`,
+              CrmMessages.quotation.CATALOG_ITEM_NOT_FOUND(line.itemId),
             );
           }
 
           const maxDiscount = item.maxDiscountPct ?? 0;
           if (maxDiscount > 0 && (line.discountPct ?? 0) > maxDiscount) {
             throw new BadRequestException(
-              `Discount exceeds maximum allowed for item ${item.reference}`,
+              CrmMessages.quotation.DISCOUNT_EXCEEDS_MAX(item.reference),
             );
           }
         }
@@ -733,7 +751,7 @@ export class QuotationsService {
     const permitted = allowed[current] ?? [];
     if (!permitted.includes(next)) {
       throw new BadRequestException(
-        `Cannot change status from ${current} to ${next}`,
+        CrmMessages.quotation.STATUS_TRANSITION(current, next),
       );
     }
   }
@@ -742,6 +760,7 @@ export class QuotationsService {
     id: string;
     tenantId: string;
     number: string;
+    status: string;
     issueDate: Date;
     expiryDate: Date | null;
     currency: string;
@@ -824,12 +843,10 @@ export class QuotationsService {
     });
 
     if (!client) {
-      throw new BadRequestException('Client not found for this tenant');
+      throw new BadRequestException(CrmMessages.quotation.CLIENT_NOT_FOUND);
     }
     if (client.blockedForNewOrders) {
-      throw new BadRequestException(
-        'Client blocked for new quotations due to overdue invoices (mise en demeure)',
-      );
+      throw new BadRequestException(CrmMessages.quotation.CLIENT_BLOCKED);
     }
   }
 
@@ -845,7 +862,7 @@ export class QuotationsService {
     });
 
     if (!contact) {
-      throw new BadRequestException('Contact not found for this client');
+      throw new BadRequestException(CrmMessages.quotation.CONTACT_NOT_FOUND);
     }
   }
 
@@ -857,7 +874,7 @@ export class QuotationsService {
     });
 
     if (!term) {
-      throw new BadRequestException('Payment term not found');
+      throw new BadRequestException(CrmMessages.quotation.PAYMENT_TERM_NOT_FOUND);
     }
   }
 

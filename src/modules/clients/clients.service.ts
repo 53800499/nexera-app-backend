@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../infrastructure/database/prisma.service';
+import { CrmMessages } from '../../shared/constants/crm-messages';
 import { CreateClientDto } from './dto/create-client.dto';
 import { UpdateClientDto } from './dto/update-client.dto';
 import { CreateContactDto } from './dto/create-contact.dto';
@@ -18,6 +19,7 @@ import { ClientDeletedEvent } from './events/client-deleted.event';
 import { ClientContactAddedEvent } from './events/client-contact-added.event';
 import { ClientEntity } from './entities/client.entity';
 import { DEFAULT_PAGE_SIZE } from '../../shared/utils/pagination.util';
+import { SettingsService } from '../settings/settings.service';
 import { DocumentNumberingService } from '../settings/services/document-numbering.service';
 import { NumberingDocumentType } from '../settings/enums/numbering-document-type.enum';
 
@@ -27,6 +29,7 @@ export class ClientsService {
     private prisma: PrismaService,
     private readonly clientEventBus: ClientEventBus,
     private readonly numberingService: DocumentNumberingService,
+    private readonly settingsService: SettingsService,
   ) {}
 
   private clientInclude = {
@@ -138,6 +141,7 @@ export class ClientsService {
       tenantId,
       NumberingDocumentType.CLIENT,
     );
+    const tenantSettings = await this.settingsService.getTenantSettings(tenantId);
 
     const client = await this.prisma.$transaction(async (tx) => {
       const created = await tx.client.create({
@@ -154,7 +158,7 @@ export class ClientsService {
           shippingAddress: dto.shippingAddress
             ? JSON.parse(dto.shippingAddress)
             : null,
-          defaultCurrency: dto.defaultCurrency ?? 'EUR',
+          defaultCurrency: dto.defaultCurrency ?? tenantSettings.primaryCurrency,
           defaultPaymentTermId: dto.defaultPaymentTermId,
           defaultDiscountPct: dto.defaultDiscountPct ?? 0,
           creditLimit: dto.creditLimit,
@@ -238,7 +242,7 @@ export class ClientsService {
     });
 
     if (!client) {
-      throw new NotFoundException('Client not found');
+      throw new NotFoundException(CrmMessages.client.NOT_FOUND);
     }
 
     return {
@@ -257,9 +261,7 @@ export class ClientsService {
     await this.findOne(id, tenantId);
 
     if ((dto as { code?: string }).code !== undefined) {
-      throw new BadRequestException(
-        'Client code cannot be modified (RM-C01)',
-      );
+      throw new BadRequestException(CrmMessages.client.CODE_IMMUTABLE);
     }
 
     const {
@@ -356,7 +358,7 @@ export class ClientsService {
       if (dup.length > 0) {
         throw new ConflictException({
           code: 'DUPLICATE_EMAIL',
-          message: 'A contact with this email already exists',
+          message: CrmMessages.client.DUPLICATE_EMAIL,
           duplicates: dup,
         });
       }
@@ -391,7 +393,7 @@ export class ClientsService {
     });
 
     if (!contact) {
-      throw new NotFoundException('Contact not found');
+      throw new NotFoundException(CrmMessages.client.CONTACT_NOT_FOUND);
     }
 
     return this.prisma.contact.update({
@@ -407,13 +409,11 @@ export class ClientsService {
     });
 
     if (!contact) {
-      throw new NotFoundException('Contact not found');
+      throw new NotFoundException(CrmMessages.client.CONTACT_NOT_FOUND);
     }
 
     if (contact.client._count.contacts <= 1) {
-      throw new BadRequestException(
-        'Cannot remove the last contact (RM-C02)',
-      );
+      throw new BadRequestException(CrmMessages.client.LAST_CONTACT);
     }
 
     await this.prisma.contact.delete({ where: { id } });
@@ -546,9 +546,7 @@ export class ClientsService {
       }
       return parsed as Prisma.InputJsonValue;
     } catch {
-      throw new BadRequestException(
-        `${field} must be a non-empty JSON object`,
-      );
+      throw new BadRequestException(CrmMessages.client.ADDRESS_INVALID(field));
     }
   }
 

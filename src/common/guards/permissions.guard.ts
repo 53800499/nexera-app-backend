@@ -6,6 +6,8 @@ import {
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { IS_PUBLIC_KEY } from '../decorators/public.decorator';
+import { ALLOW_AUTHENTICATED_KEY } from '../decorators/allow-authenticated.decorator';
+import { userHasRequiredPermission } from '../utils/permission-hierarchy.util';
 
 @Injectable()
 export class PermissionsGuard implements CanActivate {
@@ -17,6 +19,12 @@ export class PermissionsGuard implements CanActivate {
       context.getClass(),
     ]);
     if (isPublic) return true;
+
+    const allowAuthenticated = this.reflector.getAllAndOverride<boolean>(
+      ALLOW_AUTHENTICATED_KEY,
+      [context.getHandler(), context.getClass()],
+    );
+    if (allowAuthenticated) return true;
 
     const permissions = this.reflector.getAllAndOverride<string[]>(
       'permissions',
@@ -32,9 +40,7 @@ export class PermissionsGuard implements CanActivate {
     const request = context.switchToHttp().getRequest();
     const userPermissions: string[] = request.user?.permissions ?? [];
 
-    const allowed = permissions.some((permission) =>
-      userPermissions.includes(permission),
-    );
+    const allowed = userHasRequiredPermission(userPermissions, permissions);
 
     if (!allowed) {
       throw new ForbiddenException('Permission insuffisante');

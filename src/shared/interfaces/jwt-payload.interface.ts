@@ -1,6 +1,7 @@
 export interface JwtPayload {
   sub: string;
   tenantId: string;
+  tenantType: string;
 
   email: string;
 

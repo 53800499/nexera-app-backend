@@ -12,6 +12,8 @@ import { MailDeliveryService } from '../../shared/services/mail-delivery.service
 import { PasswordController } from './password.controller';
 import { PasswordResetService } from './password-reset.service';
 import { UserInvitationService } from './user-invitation.service';
+import { ProfileController } from './profile.controller';
+import { ProfileService } from './profile.service';
 
 @Module({
   imports: [
@@ -28,11 +30,12 @@ import { UserInvitationService } from './user-invitation.service';
       inject: [ConfigService],
     }),
   ],
-  controllers: [AuthController, PasswordController],
+  controllers: [AuthController, PasswordController, ProfileController],
   providers: [
     AuthService,
     PasswordResetService,
     UserInvitationService,
+    ProfileService,
     MailDeliveryService,
     JwtStrategy,
     RefreshTokenStrategy,

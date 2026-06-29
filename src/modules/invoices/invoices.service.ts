@@ -5,6 +5,7 @@ import {
 } from '@nestjs/common';
 import { InvoiceStatus as PrismaInvoiceStatus, Prisma } from '@prisma/client';
 import { PrismaService } from '../../infrastructure/database/prisma.service';
+import { CrmMessages } from '../../shared/constants/crm-messages';
 import { CreateInvoiceDto } from './dto/create-invoice.dto';
 import { UpdateInvoiceDto } from './dto/update-invoice.dto';
 import { CreateCreditNoteDto } from './dto/create-credit-note.dto';
@@ -41,6 +42,7 @@ import { InvoiceMailService } from './services/invoice-mail.service';
 import { DocumentAccessService } from '../documents/services/document-access.service';
 import { EmailTrackingService } from '../documents/services/email-tracking.service';
 import { computeDueDateFromPaymentTerm } from '../settings/utils/due-date.util';
+import { buildDocumentPreviewResponse } from '../../shared/pdf/document-preview.util';
 
 type ResolvedLine = {
   position: number;
@@ -97,9 +99,7 @@ export class InvoicesService {
     createdBy: string,
   ) {
     if (dto.invoiceType === InvoiceType.CREDIT_NOTE) {
-      throw new BadRequestException(
-        'Use POST /invoices/:id/credit-note for credit notes (RM-F05)',
-      );
+      throw new BadRequestException(CrmMessages.invoice.USE_CREDIT_NOTE_ENDPOINT);
     }
 
     await this.assertClient(tenantId, dto.clientId);
@@ -239,7 +239,7 @@ export class InvoicesService {
     );
 
     if (remaining <= 0) {
-      throw new BadRequestException('Order is already fully billed');
+      throw new BadRequestException(CrmMessages.invoice.ORDER_FULLY_BILLED);
     }
 
     let amountTtc = options.amountTtc ?? remaining;
@@ -248,7 +248,7 @@ export class InvoicesService {
     }
     if (amountTtc > remaining + 0.01) {
       throw new BadRequestException(
-        `Amount exceeds remaining to invoice (${remaining})`,
+        CrmMessages.invoice.AMOUNT_EXCEEDS_REMAINING(remaining),
       );
     }
 
@@ -379,7 +379,7 @@ export class InvoicesService {
       include: this.invoiceInclude,
     });
 
-    if (!invoice) throw new NotFoundException('Invoice not found');
+    if (!invoice) throw new NotFoundException(CrmMessages.invoice.NOT_FOUND);
 
     return this.enrichResponse(invoice);
   }
@@ -388,9 +388,7 @@ export class InvoicesService {
     const existing = await this.findOne(id, tenantId);
 
     if (!EDITABLE_INVOICE_STATUSES.includes(existing.status as InvoiceStatus)) {
-      throw new BadRequestException(
-        'Only draft invoices can be modified (RM-F02)',
-      );
+      throw new BadRequestException(CrmMessages.invoice.ONLY_DRAFT_MODIFY);
     }
 
     if (existing.invoiceType === InvoiceType.PROFORMA && dto.invoiceType) {
@@ -470,6 +468,8 @@ export class InvoicesService {
       });
     });
 
+    await this.invoicePdfService.removeCached(tenantId, id);
+
     await this.auditService.record({
       tenantId,
       entityType: AuditEntityType.INVOICE,
@@ -485,7 +485,7 @@ export class InvoicesService {
     const invoice = await this.findOne(id, tenantId);
 
     if (invoice.status !== InvoiceStatus.DRAFT) {
-      throw new BadRequestException('Only draft invoices can be issued');
+      throw new BadRequestException(CrmMessages.invoice.ONLY_DRAFT_ISSUE);
     }
 
     if (invoice.invoiceType === InvoiceType.PROFORMA) {
@@ -544,7 +544,7 @@ export class InvoicesService {
       !ISSUED_IMMUTABLE_STATUSES.includes(invoice.status as InvoiceStatus) &&
       invoice.status !== InvoiceStatus.DRAFT
     ) {
-      throw new BadRequestException('Invoice must be issued before sending');
+      throw new BadRequestException(CrmMessages.invoice.MUST_ISSUE_BEFORE_SEND);
     }
 
     const pdfUrl = this.invoicePdfService.getPublicUrl(id);
@@ -670,9 +670,43 @@ export class InvoicesService {
     await this.invoicePdfService.ensureGenerated(tenantId, id);
     const buffer = await this.invoicePdfService.read(tenantId, id);
     if (!buffer) {
-      throw new NotFoundException('PDF not found for this invoice');
+      throw new NotFoundException(CrmMessages.invoice.PDF_NOT_FOUND);
     }
     return { buffer, filename: `${invoice.number}.pdf` };
+  }
+
+  async preview(id: string, tenantId: string) {
+    const invoice = await this.findOne(id, tenantId);
+    await this.invoicePdfService.ensureGenerated(tenantId, id);
+    const pdfUrl = this.invoicePdfService.getPublicUrl(id);
+
+    const documentLabel =
+      invoice.invoiceType === InvoiceType.CREDIT_NOTE
+        ? 'Avoir'
+        : invoice.invoiceType === InvoiceType.PROFORMA
+          ? 'Facture proforma'
+          : 'Facture';
+
+    const preview = buildDocumentPreviewResponse(
+      {
+        documentType: 'invoice',
+        documentLabel,
+        number: invoice.number,
+        status: invoice.status,
+        issueDate: invoice.issueDate,
+        dueDate: invoice.dueDate,
+        currency: invoice.currency,
+        totalTtc: invoice.totalTtc,
+        clientName: invoice.client.companyName,
+        lineCount: invoice.lines.length,
+      },
+      pdfUrl,
+    );
+
+    return {
+      ...preview,
+      invoice: this.enrichResponse(invoice),
+    };
   }
 
   private async resolveRecipientEmail(
@@ -696,7 +730,7 @@ export class InvoicesService {
     const original = await this.findOne(id, tenantId);
 
     if (original.invoiceType === InvoiceType.CREDIT_NOTE) {
-      throw new BadRequestException('Cannot create credit note on a credit note');
+      throw new BadRequestException(CrmMessages.invoice.CREDIT_ON_CREDIT_NOTE);
     }
 
     if (
@@ -704,9 +738,7 @@ export class InvoicesService {
         original.status as InvoiceStatus,
       )
     ) {
-      throw new BadRequestException(
-        'Credit note requires an issued invoice (RM-F05)',
-      );
+      throw new BadRequestException(CrmMessages.invoice.CREDIT_REQUIRES_ISSUED);
     }
 
     const maxAmount = original.amountDue > 0 ? original.amountDue : original.totalTtc;
@@ -714,7 +746,7 @@ export class InvoicesService {
 
     if (totalTtc > maxAmount + 0.01) {
       throw new BadRequestException(
-        `Credit note amount cannot exceed original (${maxAmount}) — RM-F05`,
+        CrmMessages.invoice.CREDIT_EXCEEDS_ORIGINAL(maxAmount),
       );
     }
 
@@ -856,7 +888,7 @@ export class InvoicesService {
     const invoice = await this.findOne(id, tenantId);
 
     if (invoice.status !== InvoiceStatus.DRAFT) {
-      throw new BadRequestException('Only draft invoices can be deleted');
+      throw new BadRequestException(CrmMessages.invoice.ONLY_DRAFT_DELETE);
     }
 
     await this.prisma.invoiceLine.deleteMany({ where: { invoiceId: id } });
@@ -885,13 +917,11 @@ export class InvoicesService {
     });
 
     if (!template) {
-      throw new NotFoundException('Template invoice not found');
+      throw new NotFoundException(CrmMessages.invoice.TEMPLATE_NOT_FOUND);
     }
 
     if (template.invoiceType === (InvoiceType.CREDIT_NOTE as string)) {
-      throw new BadRequestException(
-        'Credit notes cannot be used as recurring templates',
-      );
+      throw new BadRequestException(CrmMessages.invoice.CREDIT_NOT_RECURRING_TEMPLATE);
     }
 
     let dueDate: Date | null = null;
@@ -980,7 +1010,9 @@ export class InvoicesService {
         });
 
         if (!taxRate) {
-          throw new BadRequestException(`Tax rate not found: ${line.taxRateId}`);
+          throw new BadRequestException(
+            CrmMessages.invoice.TAX_RATE_NOT_FOUND(line.taxRateId),
+          );
         }
 
         return {
@@ -1129,7 +1161,7 @@ export class InvoicesService {
     const order = await db.order.findFirst({
       where: { id: orderId, tenantId },
     });
-    if (!order) throw new NotFoundException('Order not found');
+    if (!order) throw new NotFoundException(CrmMessages.invoice.ORDER_NOT_FOUND);
 
     const invoices = await db.invoice.findMany({
       where: {
@@ -1222,7 +1254,7 @@ export class InvoicesService {
     const client = await this.prisma.client.findFirst({
       where: { id: clientId, tenantId, deletedAt: null },
     });
-    if (!client) throw new BadRequestException('Client not found');
+    if (!client) throw new BadRequestException(CrmMessages.invoice.CLIENT_NOT_FOUND);
   }
 
   private async assertLinks(tenantId: string, dto: CreateInvoiceDto) {
@@ -1230,16 +1262,16 @@ export class InvoicesService {
       const order = await this.prisma.order.findFirst({
         where: { id: dto.orderId, tenantId },
       });
-      if (!order) throw new BadRequestException('Order not found');
+      if (!order) throw new BadRequestException(CrmMessages.invoice.ORDER_NOT_FOUND);
       if (order.clientId !== dto.clientId) {
-        throw new BadRequestException('Order client mismatch');
+        throw new BadRequestException(CrmMessages.invoice.ORDER_CLIENT_MISMATCH);
       }
     }
     if (dto.quotationId) {
       const q = await this.prisma.quotation.findFirst({
         where: { id: dto.quotationId, tenantId },
       });
-      if (!q) throw new BadRequestException('Quotation not found');
+      if (!q) throw new BadRequestException(CrmMessages.invoice.QUOTATION_NOT_FOUND);
     }
   }
 

@@ -24,6 +24,7 @@ export interface PdfSellerInfo {
 export interface PdfBuyerInfo {
   companyName: string;
   tradeName?: string | null;
+  contactName?: string | null;
   siret?: string | null;
   taxId?: string | null;
   billingAddress?: PdfAddress | null;
@@ -82,5 +83,6 @@ export interface PdfDocumentInput {
   acceptedPaymentMethods?: string | null;
   latePaymentMention?: string | null;
   notes?: string | null;
+  statusLabel?: string | null;
   template: PdfTemplateConfig;
 }

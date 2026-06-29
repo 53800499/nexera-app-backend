@@ -5,6 +5,8 @@ import {
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
+import { TenantType } from '@prisma/client';
+import { generateCabinetInviteCode } from '../cabinet/utils/cabinet-invite.util';
 import * as bcrypt from 'bcrypt';
 import { PrismaService } from '../../infrastructure/database/prisma.service';
 import { LoginDto } from './dto/login.dto';
@@ -12,49 +14,14 @@ import { RegisterDto } from './dto/register.dto';
 import { JwtPayload } from '../../shared/interfaces/jwt-payload.interface';
 import { SettingsBootstrapService } from '../settings/services/settings-bootstrap.service';
 import { AuthMessages } from './constants/auth-messages';
+import {
+  getPermissionCodesForRole,
+  getPermissionsForTenantType,
+  getRolesForTenantType,
+} from '../../shared/constants/tenant-space.constants';
 
 @Injectable()
 export class AuthService {
-  private readonly defaultPermissions = [
-    { code: 'users.read', description: 'View users' },
-    { code: 'users.write', description: 'Manage users' },
-    { code: 'roles.read', description: 'View roles' },
-    { code: 'roles.write', description: 'Manage roles' },
-    { code: 'permissions.read', description: 'View permissions' },
-    { code: 'permissions.write', description: 'Manage permissions' },
-    { code: 'clients.read', description: 'View clients' },
-    { code: 'clients.write', description: 'Manage clients' },
-    { code: 'quotations.read', description: 'View quotations' },
-    { code: 'quotations.write', description: 'Manage quotations' },
-    { code: 'manage:users', description: 'Manage users (API guard)' },
-    { code: 'manage:roles', description: 'Manage roles (API guard)' },
-    { code: 'manage:permissions', description: 'Manage permissions (API guard)' },
-    { code: 'manage:tenants', description: 'Manage tenants (API guard)' },
-    { code: 'manage:clients', description: 'Manage clients (API guard)' },
-    { code: 'manage:quotations', description: 'Manage quotations (API guard)' },
-    { code: 'orders.read', description: 'View orders' },
-    { code: 'orders.write', description: 'Manage orders' },
-    { code: 'manage:orders', description: 'Manage orders (API guard)' },
-    { code: 'invoices.read', description: 'View invoices' },
-    { code: 'invoices.write', description: 'Manage invoices' },
-    { code: 'manage:invoices', description: 'Manage invoices (API guard)' },
-    { code: 'payments.read', description: 'View payments' },
-    { code: 'payments.write', description: 'Manage payments' },
-    { code: 'manage:payments', description: 'Manage payments (API guard)' },
-    { code: 'reminders.read', description: 'View reminders' },
-    { code: 'reminders.write', description: 'Manage reminders' },
-    { code: 'manage:reminders', description: 'Manage reminders (API guard)' },
-    { code: 'dashboard.read', description: 'View commercial dashboard' },
-    { code: 'settings.read', description: 'View tenant settings' },
-    { code: 'manage:settings', description: 'Manage tenant settings (API guard)' },
-    { code: 'sync.read', description: 'Pull offline data (bootstrap + delta)' },
-    { code: 'sync.push', description: 'Push offline mutations to server' },
-  ];
-
-  private readonly defaultRoles = [
-    { code: 'ADMIN', name: 'Admin', description: 'Tenant administrator' },
-    { code: 'CEO', name: 'CEO', description: 'Founder / CEO' },
-  ];
   constructor(
     private prisma: PrismaService,
     private jwt: JwtService,
@@ -65,6 +32,7 @@ export class AuthService {
   async register(dto: RegisterDto) {
     const email = dto.email.toLowerCase().trim();
     const { password, firstName, lastName, tenantId, tenantName } = dto;
+    const requestedType = dto.tenantType ?? TenantType.company;
 
     const existingUser = await this.prisma.user.findUnique({
       where: { email },
@@ -76,13 +44,17 @@ export class AuthService {
 
     const tenantNameValue = tenantName?.trim();
 
+    if (tenantId && dto.tenantType) {
+      throw new BadRequestException(AuthMessages.TENANT_TYPE_ON_JOIN_FORBIDDEN);
+    }
+
     let tenant = tenantId
       ? await this.prisma.tenant.findUnique({ where: { id: tenantId } })
       : null;
 
     if (!tenant && tenantNameValue) {
       tenant = await this.prisma.tenant.findFirst({
-        where: { name: tenantNameValue },
+        where: { name: tenantNameValue, type: requestedType },
       });
     }
 
@@ -95,15 +67,23 @@ export class AuthService {
       }
 
       tenant = await this.prisma.tenant.create({
-        data: { name: tenantNameValue },
+        data: {
+          name: tenantNameValue,
+          type: requestedType,
+          cabinetInviteCode:
+            requestedType === TenantType.cabinet
+              ? generateCabinetInviteCode()
+              : undefined,
+        },
       });
       await this.settingsBootstrap.seedTenantDefaults(tenant.id);
     }
 
-    await this.seedDefaultRolesAndPermissions(tenant.id);
+    await this.seedDefaultRolesAndPermissions(tenant.id, tenant.type);
 
+    const roleDefinitions = getRolesForTenantType(tenant.type);
     const roles = await Promise.all(
-      this.defaultRoles.map(async (roleDefinition) => {
+      roleDefinitions.map(async (roleDefinition) => {
         let role = await this.prisma.role.findFirst({
           where: {
             tenantId: tenant.id,
@@ -143,6 +123,7 @@ export class AuthService {
         isSuperAdmin: !firstTenantUser,
       },
       include: {
+        tenant: true,
         roles: {
           include: {
             role: {
@@ -173,6 +154,7 @@ export class AuthService {
     const userWithRole = await this.prisma.user.findUnique({
       where: { id: user.id },
       include: {
+        tenant: true,
         roles: {
           include: {
             role: {
@@ -189,11 +171,20 @@ export class AuthService {
       },
     });
 
+    if (!userWithRole) {
+      throw new BadRequestException(AuthMessages.PROFILE_NOT_FOUND);
+    }
+
     return this.generateTokens(userWithRole);
   }
 
-  private async seedDefaultRolesAndPermissions(tenantId: string) {
-    for (const permission of this.defaultPermissions) {
+  private async seedDefaultRolesAndPermissions(
+    tenantId: string,
+    tenantType: TenantType,
+  ) {
+    const permissionDefinitions = getPermissionsForTenantType(tenantType);
+
+    for (const permission of permissionDefinitions) {
       const existingPermission = await this.prisma.permission.findUnique({
         where: { code: permission.code },
       });
@@ -205,15 +196,9 @@ export class AuthService {
       }
     }
 
-    const permissions = await this.prisma.permission.findMany({
-      where: {
-        code: {
-          in: this.defaultPermissions.map((permission) => permission.code),
-        },
-      },
-    });
+    const roleDefinitions = getRolesForTenantType(tenantType);
 
-    for (const roleDefinition of this.defaultRoles) {
+    for (const roleDefinition of roleDefinitions) {
       let role = await this.prisma.role.findFirst({
         where: {
           tenantId,
@@ -232,6 +217,14 @@ export class AuthService {
         });
       }
 
+      const permissionCodes = getPermissionCodesForRole(
+        roleDefinition.code,
+        tenantType,
+      );
+      const permissions = await this.prisma.permission.findMany({
+        where: { code: { in: permissionCodes } },
+      });
+
       await this.prisma.rolePermission.createMany({
         data: permissions.map((permission) => ({
           roleId: role.id,
@@ -249,6 +242,7 @@ export class AuthService {
     const user = await this.prisma.user.findUnique({
       where: { email },
       include: {
+        tenant: true,
         roles: {
           include: {
             role: {
@@ -287,10 +281,10 @@ export class AuthService {
   }
 
   async refreshToken(payload: JwtPayload) {
-    // Récupérer l'utilisateur avec ses rôles et permissions actuels
     const user = await this.prisma.user.findUnique({
       where: { id: payload.sub },
       include: {
+        tenant: true,
         roles: {
           include: {
             role: {
@@ -314,17 +308,35 @@ export class AuthService {
     return this.generateTokens(user);
   }
 
-  private generateTokens(user: any) {
-    // Extraire les rôles et permissions
-    const roles = user.roles?.map((ur: any) => ur.role.code) || [];
-    const permissions =
-      user.roles?.flatMap((ur: any) =>
-        ur.role.permissions.map((rp: any) => rp.permission.code),
-      ) || [];
+  private generateTokens(user: {
+    id: string;
+    tenantId: string;
+    email: string;
+    firstName: string;
+    lastName: string;
+    tenant?: { type: TenantType };
+    roles?: Array<{
+      role: {
+        code: string;
+        permissions: Array<{ permission: { code: string } }>;
+      };
+    }>;
+  }) {
+    const roles = user.roles?.map((ur) => ur.role.code) || [];
+    const permissions = [
+      ...new Set(
+        user.roles?.flatMap((ur) =>
+          ur.role.permissions.map((rp) => rp.permission.code),
+        ) || [],
+      ),
+    ];
+
+    const tenantType = user.tenant?.type ?? TenantType.company;
 
     const payload: JwtPayload = {
       sub: user.id,
       tenantId: user.tenantId,
+      tenantType,
       email: user.email,
       roles,
       permissions,
@@ -349,6 +361,7 @@ export class AuthService {
         firstName: user.firstName,
         lastName: user.lastName,
         tenantId: user.tenantId,
+        tenantType,
         roles,
         permissions,
       },

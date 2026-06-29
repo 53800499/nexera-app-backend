@@ -5,6 +5,7 @@ import {
 } from '@nestjs/common';
 import { InvoiceStatus, Prisma } from '@prisma/client';
 import { PrismaService } from '../../infrastructure/database/prisma.service';
+import { CrmMessages } from '../../shared/constants/crm-messages';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { UpdateOrderDto } from './dto/update-order.dto';
 import { CreateOrderInvoiceDto } from './dto/create-order-invoice.dto';
@@ -26,6 +27,7 @@ import { OrderInvoiceCreatedEvent } from './events/order-invoice-created.event';
 import { InvoicesService } from '../invoices/invoices.service';
 import { DEFAULT_PAGE_SIZE } from '../../shared/utils/pagination.util';
 import { DocumentNumberingService } from '../settings/services/document-numbering.service';
+import { SettingsService } from '../settings/settings.service';
 import { NumberingDocumentType } from '../settings/enums/numbering-document-type.enum';
 
 type ResolvedLine = {
@@ -53,6 +55,7 @@ export class OrdersService {
     private readonly orderEventBus: OrderEventBus,
     private readonly invoicesService: InvoicesService,
     private readonly numberingService: DocumentNumberingService,
+    private readonly settingsService: SettingsService,
   ) {}
 
   private readonly orderInclude = {
@@ -95,6 +98,7 @@ export class OrdersService {
       tenantId,
       NumberingDocumentType.ORDER_DRAFT,
     );
+    const tenantSettings = await this.settingsService.getTenantSettings(tenantId);
 
     const order = await this.prisma.order.create({
       data: {
@@ -104,7 +108,7 @@ export class OrdersService {
         quotationId: dto.quotationId,
         status: OrderStatus.DRAFT,
         issueDate: new Date(dto.issueDate),
-        currency: dto.currency ?? 'EUR',
+        currency: dto.currency ?? tenantSettings.primaryCurrency,
         subtotalHt: totals.subtotalHt,
         discountPct: totals.discountPct,
         discountAmount: totals.discountAmount,
@@ -185,7 +189,7 @@ export class OrdersService {
       include: this.orderInclude,
     });
 
-    if (!order) throw new NotFoundException('Order not found');
+    if (!order) throw new NotFoundException(CrmMessages.order.NOT_FOUND);
 
     return this.withBillingSummary(order);
   }
@@ -194,9 +198,7 @@ export class OrdersService {
     const existing = await this.findOne(id, tenantId);
 
     if (!EDITABLE_ORDER_STATUSES.includes(existing.status as OrderStatus)) {
-      throw new BadRequestException(
-        'Only draft orders can be modified',
-      );
+      throw new BadRequestException(CrmMessages.order.ONLY_DRAFT_MODIFY);
     }
 
     const discountPct = dto.discountPct ?? existing.discountPct;
@@ -268,7 +270,7 @@ export class OrdersService {
     const order = await this.findOne(id, tenantId);
 
     if (order.status !== OrderStatus.DRAFT) {
-      throw new BadRequestException('Only draft orders can be confirmed');
+      throw new BadRequestException(CrmMessages.order.ONLY_DRAFT_CONFIRM);
     }
 
     const finalNumber = await this.numberingService.generateNext(
@@ -299,7 +301,7 @@ export class OrdersService {
     const order = await this.findOne(id, tenantId);
 
     if (order.status === OrderStatus.CANCELLED) {
-      throw new BadRequestException('Order is already cancelled');
+      throw new BadRequestException(CrmMessages.order.ALREADY_CANCELLED);
     }
 
     const activeInvoices = order.invoices.filter(
@@ -307,9 +309,7 @@ export class OrdersService {
     );
 
     if (activeInvoices.length > 0) {
-      throw new BadRequestException(
-        'Cannot cancel an order with invoices (UC-04)',
-      );
+      throw new BadRequestException(CrmMessages.order.CANNOT_CANCEL_WITH_INVOICES);
     }
 
     const updated = await this.prisma.order.update({
@@ -325,11 +325,11 @@ export class OrdersService {
     const order = await this.findOne(id, tenantId);
 
     if (order.status !== OrderStatus.DRAFT) {
-      throw new BadRequestException('Only draft orders can be deleted');
+      throw new BadRequestException(CrmMessages.order.ONLY_DRAFT_DELETE);
     }
 
     if (order.invoices.length > 0) {
-      throw new BadRequestException('Cannot delete an order with invoices');
+      throw new BadRequestException(CrmMessages.order.CANNOT_DELETE_WITH_INVOICES);
     }
 
     await this.prisma.orderLine.deleteMany({ where: { orderId: id } });
@@ -350,14 +350,12 @@ export class OrdersService {
       order.status === OrderStatus.DRAFT ||
       order.status === OrderStatus.CANCELLED
     ) {
-      throw new BadRequestException(
-        'Order must be confirmed before invoicing',
-      );
+      throw new BadRequestException(CrmMessages.order.MUST_CONFIRM_BEFORE_INVOICE);
     }
 
     const summary = this.computeBillingSummary(order);
     if (summary.remainingToInvoice <= 0) {
-      throw new BadRequestException('Order is already fully billed');
+      throw new BadRequestException(CrmMessages.order.ALREADY_FULLY_BILLED);
     }
 
     let amountTtc = dto.amountTtc ?? summary.remainingToInvoice;
@@ -369,12 +367,12 @@ export class OrdersService {
 
     if (amountTtc > summary.remainingToInvoice + 0.01) {
       throw new BadRequestException(
-        `Amount exceeds remaining to invoice (${summary.remainingToInvoice})`,
+        CrmMessages.order.AMOUNT_EXCEEDS_REMAINING(summary.remainingToInvoice),
       );
     }
 
     if (amountTtc <= 0) {
-      throw new BadRequestException('Invoice amount must be greater than 0');
+      throw new BadRequestException(CrmMessages.order.INVOICE_AMOUNT_POSITIVE);
     }
 
     const invoice = await this.invoicesService.createFromOrder(
@@ -556,7 +554,7 @@ export class OrdersService {
 
         if (!taxRate) {
           throw new BadRequestException(
-            `Tax rate not found: ${line.taxRateId}`,
+            CrmMessages.order.TAX_RATE_NOT_FOUND(line.taxRateId),
           );
         }
 
@@ -565,7 +563,9 @@ export class OrdersService {
             where: { id: line.itemId, tenantId, isArchived: false },
           });
           if (!item) {
-            throw new BadRequestException(`Catalog item not found: ${line.itemId}`);
+            throw new BadRequestException(
+              CrmMessages.order.CATALOG_ITEM_NOT_FOUND(line.itemId),
+            );
           }
         }
 
@@ -643,12 +643,10 @@ export class OrdersService {
       where: { id: clientId, tenantId, deletedAt: null },
     });
     if (!client) {
-      throw new BadRequestException('Client not found for this tenant');
+      throw new BadRequestException(CrmMessages.order.CLIENT_NOT_FOUND);
     }
     if (client.blockedForNewOrders) {
-      throw new BadRequestException(
-        'Client blocked for new orders due to overdue invoices (mise en demeure)',
-      );
+      throw new BadRequestException(CrmMessages.order.CLIENT_BLOCKED);
     }
   }
 
@@ -664,13 +662,11 @@ export class OrdersService {
     });
 
     if (!quotation) {
-      throw new BadRequestException('Quotation not found');
+      throw new BadRequestException(CrmMessages.order.QUOTATION_NOT_FOUND);
     }
 
     if (quotation.clientId !== clientId) {
-      throw new BadRequestException(
-        'Quotation does not belong to the selected client (RM-BC03)',
-      );
+      throw new BadRequestException(CrmMessages.order.QUOTATION_CLIENT_MISMATCH);
     }
   }
 

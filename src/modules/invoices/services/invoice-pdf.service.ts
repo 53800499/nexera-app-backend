@@ -36,6 +36,7 @@ export class InvoicePdfService {
       where: { id: invoiceId, tenantId },
       include: {
         client: true,
+        contact: true,
         paymentTerm: true,
         lines: {
           orderBy: { position: 'asc' },
@@ -84,6 +85,10 @@ export class InvoicePdfService {
 
     const companyAddress = settings.companyAddress as PdfAddress | null;
 
+    const contactName = invoice.contact
+      ? `${invoice.contact.firstName} ${invoice.contact.lastName}`.trim()
+      : null;
+
     return generateDocumentPdf({
       documentType:
         invoice.invoiceType === InvoiceType.CREDIT_NOTE
@@ -94,6 +99,12 @@ export class InvoicePdfService {
       issueDate,
       dueDate: invoice.dueDate,
       currency: invoice.currency,
+      statusLabel:
+        invoice.status === 'draft'
+          ? 'Brouillon'
+          : invoice.invoiceType === InvoiceType.PROFORMA
+            ? 'Proforma'
+            : null,
       seller: {
         name: tenant?.name ?? 'Entreprise',
         legalName: settings.legalName,
@@ -110,6 +121,7 @@ export class InvoicePdfService {
       buyer: {
         companyName: invoice.client.companyName,
         tradeName: invoice.client.tradeName,
+        contactName,
         siret: invoice.client.siret,
         taxId: invoice.client.taxId,
         billingAddress: invoice.client.billingAddress as PdfAddress | null,
@@ -153,6 +165,14 @@ export class InvoicePdfService {
       return await fs.readFile(this.getStoragePath(tenantId, invoiceId));
     } catch {
       return null;
+    }
+  }
+
+  async removeCached(tenantId: string, invoiceId: string) {
+    try {
+      await fs.unlink(this.getStoragePath(tenantId, invoiceId));
+    } catch {
+      // fichier absent — rien à invalider
     }
   }
 

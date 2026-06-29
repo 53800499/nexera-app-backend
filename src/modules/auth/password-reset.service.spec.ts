@@ -43,7 +43,7 @@ describe('PasswordResetService', () => {
 
     const result = await service.forgotPassword({ email: 'unknown@test.com' });
 
-    expect(result.message).toContain('If an account exists');
+    expect(result.message).toContain('Si un compte existe');
     expect(mail.send).not.toHaveBeenCalled();
   });
 
@@ -57,7 +57,7 @@ describe('PasswordResetService', () => {
 
     const result = await service.forgotPassword({ email: 'john@test.com' });
 
-    expect(result.message).toContain('If an account exists');
+    expect(result.message).toContain('Si un compte existe');
     expect(prisma.passwordResetToken.create).toHaveBeenCalled();
     expect(mail.send).toHaveBeenCalled();
   });
@@ -67,6 +67,6 @@ describe('PasswordResetService', () => {
 
     await expect(
       service.resetPassword({ token: 'bad-token', password: 'NewPass123' }),
-    ).rejects.toThrow('Invalid or expired reset token');
+    ).rejects.toThrow('invalide ou a expiré');
   });
 });

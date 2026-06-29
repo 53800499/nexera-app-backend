@@ -132,8 +132,24 @@ export class InvoicesController {
     res.set({
       'Content-Type': 'application/pdf',
       'Content-Disposition': `inline; filename="${filename}"`,
+      'Cache-Control': 'private, max-age=60',
     });
     res.send(buffer);
+  }
+
+  @Get(':id/preview')
+  @Permissions('invoices.read')
+  @ApiOperation({
+    summary: 'Prévisualiser une facture',
+    description:
+      'Génère le PDF si nécessaire et retourne les métadonnées pour afficher une preview (iframe sur pdfUrl).',
+  })
+  @ApiParam({ name: 'id', format: 'uuid' })
+  preview(
+    @Param('id') id: string,
+    @Request() req: { user: { tenantId: string } },
+  ) {
+    return this.invoicesService.preview(id, req.user.tenantId);
   }
 
   @Get(':id')
