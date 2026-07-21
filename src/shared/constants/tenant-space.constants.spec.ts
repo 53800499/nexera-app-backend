@@ -16,7 +16,10 @@ describe('tenant-space.constants', () => {
 
     expect(company).toContain('clients.read');
     expect(company).toContain('invoices.read');
+    expect(company).toContain('stock.read');
+    expect(company).toContain('manage:stock');
     expect(cabinet).not.toContain('clients.read');
+    expect(cabinet).not.toContain('stock.read');
     expect(cabinet).toContain('cabinet.read');
   });
 

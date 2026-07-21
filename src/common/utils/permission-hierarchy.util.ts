@@ -11,6 +11,7 @@ const MANAGE_IMPLIES: Record<string, string[]> = {
   'manage:reminders': ['reminders.read', 'reminders.write'],
   'manage:settings': ['settings.read'],
   'manage:catalogue': ['catalogue.read'],
+  'manage:stock': ['stock.read'],
 };
 
 export function expandUserPermissions(permissions: string[]): Set<string> {

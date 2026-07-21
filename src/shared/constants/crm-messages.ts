@@ -127,4 +127,37 @@ export const CrmMessages = {
       "Cette facture n'est pas ouverte aux encaissements.",
     NO_AMOUNT_DUE: "Cette facture n'a plus de montant à payer.",
   },
+  stock: {
+    WAREHOUSE_NOT_FOUND: 'Entrepôt introuvable.',
+    LOCATION_NOT_FOUND: 'Emplacement introuvable.',
+    STOCK_ITEM_NOT_FOUND: 'Configuration stock introuvable.',
+    CATALOG_ITEM_NOT_FOUND:
+      'Article catalogue introuvable pour votre organisation.',
+    CATALOG_ITEM_NOT_PRODUCT:
+      'Seuls les articles de type produit peuvent avoir une configuration stock.',
+    STOCK_ITEM_EXISTS:
+      'Une configuration stock existe déjà pour cet article.',
+    WAREHOUSE_CODE_EXISTS: 'Ce code entrepôt existe déjà.',
+    WAREHOUSE_CODE_IMMUTABLE:
+      "Le code entrepôt ne peut pas être modifié après création.",
+    WAREHOUSE_HAS_STOCK:
+      'Cet entrepôt contient encore du stock. Transférez le stock avant archivage (RM-E02).',
+    WAREHOUSE_DEFAULT_REQUIRED:
+      'Un entrepôt par défaut est obligatoire. Désignez un autre entrepôt avant (RM-E03).',
+    WAREHOUSE_ARCHIVED:
+      'Cet entrepôt est archivé : aucune modification d’emplacement possible.',
+    LOCATION_CODE_EXISTS: 'Ce code emplacement existe déjà.',
+    LOCATION_CODE_IMMUTABLE:
+      "Le code emplacement et sa hiérarchie ne peuvent pas être modifiés après création (RM-E01).",
+    LOCATION_HIERARCHY_REQUIRED:
+      'Zone, allée, rayon et case sont obligatoires pour créer un emplacement.',
+    LOCATION_WAREHOUSE_MISMATCH:
+      "L'emplacement n'appartient pas à l'entrepôt sélectionné.",
+    THRESHOLDS_INVALID:
+      'Seuils incohérents : stock de sécurité ≤ stock minimum ≤ stock maximum (RM-S04).',
+    CONVERSION_FACTOR_INVALID:
+      'Le facteur de conversion doit être strictement positif.',
+    VALUATION_METHOD_IMMUTABLE:
+      'La méthode de valorisation ne peut pas être modifiée tant que le stock est positif (RM-S01).',
+  },
 } as const;

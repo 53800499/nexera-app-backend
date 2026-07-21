@@ -402,6 +402,7 @@ model CatalogItem {
   prices         CatalogItemPrice[]
 
   invoiceLines InvoiceLine[]
+  stockItem    StockItem?
 
   @@unique([tenantId, reference])
   @@index([tenantId])
@@ -1027,6 +1028,87 @@ enum SyncMutationStatus {
   conflict
   rejected
   duplicate
+}
+
+/// Module 2 — Gestion des Stocks (UC-S01)
+enum StockValuationMethod {
+  cmup
+  fifo
+  lifo
+}
+
+model Warehouse {
+  id             String   @id @default(uuid())
+  tenantId       String   @map("tenant_id")
+  code           String
+  name           String
+  address        Json?
+  isDefault      Boolean  @default(false) @map("is_default")
+  isActive       Boolean  @default(true) @map("is_active")
+  managerUserId  String?  @map("manager_user_id")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  locations            WarehouseLocation[]
+  defaultForStockItems StockItem[]         @relation("StockItemDefaultWarehouse")
+
+  @@unique([tenantId, code])
+  @@index([tenantId])
+  @@index([tenantId, isActive])
+  @@map("warehouses")
+}
+
+model WarehouseLocation {
+  id          String   @id @default(uuid())
+  tenantId    String   @map("tenant_id")
+  warehouseId String   @map("warehouse_id")
+  code        String
+  zone        String?
+  aisle       String?
+  rack        String?
+  bin         String?
+  capacity    Float?
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  warehouse            Warehouse   @relation(fields: [warehouseId], references: [id], onDelete: Cascade)
+  defaultForStockItems StockItem[] @relation("StockItemDefaultLocation")
+
+  @@unique([tenantId, code])
+  @@index([tenantId])
+  @@index([warehouseId])
+  @@map("warehouse_locations")
+}
+
+model StockItem {
+  id                  String                @id @default(uuid())
+  tenantId            String                @map("tenant_id")
+  commercialItemId    String                @map("commercial_item_id")
+  trackLots           Boolean               @default(false) @map("track_lots")
+  trackSerials        Boolean               @default(false) @map("track_serials")
+  trackExpiry         Boolean               @default(false) @map("track_expiry")
+  valuationMethod     StockValuationMethod  @default(cmup) @map("valuation_method")
+  storageUnit         String                @map("storage_unit")
+  conversionFactor    Float                 @default(1) @map("conversion_factor")
+  minStockQty         Float?                @map("min_stock_qty")
+  safetyStockQty      Float?                @map("safety_stock_qty")
+  maxStockQty         Float?                @map("max_stock_qty")
+  reorderQty          Float?                @map("reorder_qty")
+  defaultWarehouseId  String?               @map("default_warehouse_id")
+  defaultLocationId   String?               @map("default_location_id")
+  allowNegativeStock  Boolean               @default(false) @map("allow_negative_stock")
+  currentCmup         Float                 @default(0) @map("current_cmup")
+  createdAt           DateTime              @default(now()) @map("created_at")
+  updatedAt           DateTime              @updatedAt @map("updated_at")
+
+  commercialItem   CatalogItem        @relation(fields: [commercialItemId], references: [id], onDelete: Cascade)
+  defaultWarehouse Warehouse?         @relation("StockItemDefaultWarehouse", fields: [defaultWarehouseId], references: [id])
+  defaultLocation  WarehouseLocation? @relation("StockItemDefaultLocation", fields: [defaultLocationId], references: [id])
+
+  @@unique([commercialItemId])
+  @@index([tenantId])
+  @@index([tenantId, valuationMethod])
+  @@map("stock_items")
 }
 
 model SyncDevice {

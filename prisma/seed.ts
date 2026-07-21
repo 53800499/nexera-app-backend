@@ -46,6 +46,11 @@ const SYNC_PERMISSIONS = [
   { code: 'sync.push', description: 'Push offline mutations to server' },
 ];
 
+const STOCK_PERMISSIONS = [
+  { code: 'stock.read', description: 'View stock' },
+  { code: 'manage:stock', description: 'Manage stock (API guard)' },
+];
+
 const API_ALIAS_PERMISSIONS = [
   { code: 'clients.read', description: 'View clients' },
   { code: 'catalogue.read', description: 'View catalogue' },
@@ -73,6 +78,7 @@ const ALL_NEW_PERMISSIONS = [
   ...DASHBOARD_PERMISSIONS,
   ...SETTINGS_PERMISSIONS,
   ...SYNC_PERMISSIONS,
+  ...STOCK_PERMISSIONS,
   ...API_ALIAS_PERMISSIONS,
   ...CABINET_PERMISSIONS,
 ];

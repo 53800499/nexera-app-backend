@@ -33,6 +33,8 @@ const COMPANY_CRM_PERMISSIONS: PermissionDefinition[] = [
   { code: 'manage:clients', description: 'Manage clients (API guard)' },
   { code: 'catalogue.read', description: 'View catalogue' },
   { code: 'manage:catalogue', description: 'Manage catalogue (API guard)' },
+  { code: 'stock.read', description: 'View stock' },
+  { code: 'manage:stock', description: 'Manage stock (API guard)' },
   { code: 'quotations.read', description: 'View quotations' },
   { code: 'quotations.write', description: 'Manage quotations' },
   { code: 'manage:quotations', description: 'Manage quotations (API guard)' },
