@@ -70,7 +70,13 @@ export class SettingsController {
   }
 
   @Get('tax-rates')
-  @Permissions('settings.read')
+  @Permissions(
+    'settings.read',
+    'quotations.read',
+    'orders.read',
+    'invoices.read',
+    'catalogue.read',
+  )
   listTaxRates(@Request() req: { user: { tenantId: string } }) {
     return this.settingsService.listTaxRates(req.user.tenantId);
   }
@@ -105,7 +111,12 @@ export class SettingsController {
   }
 
   @Get('payment-terms')
-  @Permissions('settings.read')
+  @Permissions(
+    'settings.read',
+    'quotations.read',
+    'orders.read',
+    'invoices.read',
+  )
   listPaymentTerms(@Request() req: { user: { tenantId: string } }) {
     return this.settingsService.listPaymentTerms(req.user.tenantId);
   }

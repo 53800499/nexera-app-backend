@@ -113,6 +113,20 @@ export class CatalogueController {
     return this.catalogueService.findOneItem(id, req.user.tenantId);
   }
 
+  @Patch('items/:id/activate')
+  @Permissions('manage:catalogue')
+  @ApiOperation({
+    summary: 'Réactiver un article',
+    description:
+      'Réactivation logique : l’article redevient actif (isArchived=false).',
+  })
+  activateItem(
+    @Param('id') id: string,
+    @Request() req: { user: { tenantId: string } },
+  ) {
+    return this.catalogueService.activateItem(id, req.user.tenantId);
+  }
+
   @Patch('items/:id')
   @Permissions('manage:catalogue')
   @ApiOperation({ summary: 'Modifier un article' })

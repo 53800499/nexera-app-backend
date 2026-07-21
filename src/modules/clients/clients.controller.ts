@@ -120,6 +120,36 @@ export class ClientsController {
     return this.clientsService.update(id, req.user.tenantId, dto);
   }
 
+  @Patch(':id/activate')
+  @Permissions('manage:clients')
+  @ApiOperation({
+    summary: 'Réactiver un client',
+    description:
+      'Réactivation logique : le client redevient actif (isArchived=false).',
+  })
+  @ApiResponse({ status: 200, description: 'Client réactivé' })
+  activate(
+    @Param('id') id: string,
+    @Request() req: { user: { tenantId: string } },
+  ) {
+    return this.clientsService.activate(id, req.user.tenantId);
+  }
+
+  @Patch(':id/deactivate')
+  @Permissions('manage:clients')
+  @ApiOperation({
+    summary: 'Désactiver un client',
+    description:
+      'Désactivation logique: le client passe en archivage (isArchived=true) sans suppression de la fiche.',
+  })
+  @ApiResponse({ status: 200, description: 'Client désactivé' })
+  deactivate(
+    @Param('id') id: string,
+    @Request() req: { user: { tenantId: string } },
+  ) {
+    return this.clientsService.deactivate(id, req.user.tenantId);
+  }
+
   @Delete(':id')
   @Permissions('manage:clients')
   @ApiOperation({

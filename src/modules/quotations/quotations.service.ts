@@ -2,6 +2,7 @@
 import {
   BadRequestException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
@@ -64,6 +65,8 @@ type ResolvedLine = {
 
 @Injectable()
 export class QuotationsService {
+  private readonly logger = new Logger(QuotationsService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly quotationEventBus: QuotationEventBus,
@@ -366,55 +369,6 @@ export class QuotationsService {
       dto.recipientEmail,
     );
 
-    const access = await this.documentAccessService.createToken(
-      tenantId,
-      'quotation',
-      id,
-    );
-
-    let mailResult: SendQuotationMailResult = {
-      sent: false,
-      reason: 'no_recipient',
-    };
-    if (recipientEmail) {
-      const buffer = await this.quotationPdfService.read(tenantId, id);
-      if (buffer) {
-        const mailContent = await this.emailTemplateService.render(
-          tenantId,
-          EmailTemplateType.QUOTATION_SEND,
-          {
-            documentNumber: quotation.number,
-            clientName: quotation.client.companyName,
-            downloadUrl: access.downloadUrl,
-            message: dto.message ?? '',
-          },
-        );
-
-        let html: string | undefined;
-        if (this.emailTrackingService.isEnabled()) {
-          const tracking = await this.emailTrackingService.createTracking(
-            tenantId,
-            'quotation',
-            id,
-            recipientEmail,
-          );
-          html = this.emailTrackingService.buildHtmlWithPixel(
-            mailContent.body.replace(/\n/g, '<br>'),
-            tracking.pixelUrl,
-          );
-        }
-
-        mailResult = await this.quotationMailService.send({
-          to: recipientEmail,
-          subject: mailContent.subject,
-          text: `${mailContent.body}\n\nTéléchargement : ${access.downloadUrl}`,
-          html,
-          pdf: buffer,
-          filename: `${quotation.number}.pdf`,
-        });
-      }
-    }
-
     const updated = await this.prisma.quotation.update({
       where: { id },
       data: {
@@ -423,6 +377,73 @@ export class QuotationsService {
       },
       include: this.quotationInclude,
     });
+
+    let downloadUrl: string | undefined;
+    try {
+      const access = await this.documentAccessService.createToken(
+        tenantId,
+        'quotation',
+        id,
+      );
+      downloadUrl = access.downloadUrl;
+    } catch (error) {
+      this.logger.warn(
+        `Impossible de créer le lien de téléchargement pour le devis ${id}`,
+        error instanceof Error ? error.stack : String(error),
+      );
+    }
+
+    let mailResult: SendQuotationMailResult = {
+      sent: false,
+      reason: recipientEmail ? 'email_not_sent' : 'no_recipient',
+    };
+
+    if (recipientEmail && downloadUrl) {
+      try {
+        const buffer = await this.quotationPdfService.read(tenantId, id);
+        if (buffer) {
+          const mailContent = await this.emailTemplateService.render(
+            tenantId,
+            EmailTemplateType.QUOTATION_SEND,
+            {
+              documentNumber: quotation.number,
+              clientName: quotation.client.companyName,
+              downloadUrl,
+              message: dto.message ?? '',
+            },
+          );
+
+          let html: string | undefined;
+          if (this.emailTrackingService.isEnabled()) {
+            const tracking = await this.emailTrackingService.createTracking(
+              tenantId,
+              'quotation',
+              id,
+              recipientEmail,
+            );
+            html = this.emailTrackingService.buildHtmlWithPixel(
+              mailContent.body.replace(/\n/g, '<br>'),
+              tracking.pixelUrl,
+            );
+          }
+
+          mailResult = await this.quotationMailService.send({
+            to: recipientEmail,
+            subject: mailContent.subject,
+            text: `${mailContent.body}\n\nTéléchargement : ${downloadUrl}`,
+            html,
+            pdf: buffer,
+            filename: `${quotation.number}.pdf`,
+          });
+        }
+      } catch (error) {
+        this.logger.warn(
+          `Échec d'envoi email pour le devis ${id} (${recipientEmail})`,
+          error instanceof Error ? error.stack : String(error),
+        );
+        mailResult = { sent: false, reason: 'email_failed' };
+      }
+    }
 
     this.quotationEventBus.publish(
       new QuotationSentEvent(
@@ -436,7 +457,7 @@ export class QuotationsService {
       entityType: AuditEntityType.QUOTATION,
       entityId: id,
       action: AuditAction.SEND,
-      metadata: { recipientEmail, downloadUrl: access.downloadUrl },
+      metadata: { recipientEmail, downloadUrl },
     });
 
     return {
@@ -444,7 +465,7 @@ export class QuotationsService {
       message: 'Quotation marked as sent',
       recipientEmail,
       pdfUrl,
-      downloadUrl: access.downloadUrl,
+      downloadUrl,
       email: mailResult,
     };
   }

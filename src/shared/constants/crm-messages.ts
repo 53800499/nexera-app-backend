@@ -9,6 +9,7 @@ export const CrmMessages = {
       `L'adresse « ${field} » doit être un objet JSON non vide.`,
     ARCHIVE_HAS_TRANSACTIONS:
       "Impossible d'archiver ce client : des devis, commandes, factures ou paiements y sont liés.",
+    ACTIVATED: 'Client réactivé avec succès.',
   },
   catalogue: {
     CATEGORY_NOT_FOUND: 'Catégorie introuvable.',

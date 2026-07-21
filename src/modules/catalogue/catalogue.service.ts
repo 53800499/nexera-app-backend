@@ -190,6 +190,20 @@ export class CatalogueService {
     return { message: 'Item archived successfully', itemId: item.id };
   }
 
+  async activateItem(id: string, tenantId: string) {
+    const item = await this.findOneItem(id, tenantId);
+
+    if (!item.isArchived) {
+      return item;
+    }
+
+    return this.prisma.catalogItem.update({
+      where: { id },
+      data: { isArchived: false },
+      include: { category: true, taxRate: true, prices: true },
+    });
+  }
+
   async createPrice(itemId: string, tenantId: string, dto: CreateCatalogPriceDto) {
     await this.findOneItem(itemId, tenantId);
 

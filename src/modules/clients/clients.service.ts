@@ -301,6 +301,64 @@ export class ClientsService {
     return updated;
   }
 
+  async deactivate(id: string, tenantId: string) {
+    const client = await this.findOne(id, tenantId);
+
+    if (client.isArchived) {
+      return {
+        message: 'Client déjà désactivé',
+        clientId: client.id,
+        archived: true,
+      };
+    }
+
+    await this.prisma.client.update({
+      where: { id },
+      data: { isArchived: true },
+    });
+
+    return {
+      message: 'Client désactivé avec succès',
+      clientId: client.id,
+      archived: true,
+    };
+  }
+
+  async activate(id: string, tenantId: string) {
+    const client = await this.prisma.client.findFirst({
+      where: { id, tenantId },
+    });
+
+    if (!client) {
+      throw new NotFoundException(CrmMessages.client.NOT_FOUND);
+    }
+
+    if (!client.isArchived && client.deletedAt === null) {
+      return this.findOne(id, tenantId);
+    }
+
+    const updated = await this.prisma.client.update({
+      where: { id },
+      data: { isArchived: false, deletedAt: null },
+      include: this.clientDetailInclude,
+    });
+
+    this.clientEventBus.publish(
+      new ClientUpdatedEvent(ClientEntity.fromPrisma(updated)),
+    );
+
+    return {
+      ...updated,
+      history: {
+        quotations: updated.quotations,
+        invoices: updated.invoices,
+        orders: updated.orders,
+        payments: updated.payments,
+        counts: updated._count,
+      },
+    };
+  }
+
   /** Archivage (RM-C05) — jamais de suppression physique si transactions existent */
   async remove(id: string, tenantId: string) {
     const client = await this.findOne(id, tenantId);
