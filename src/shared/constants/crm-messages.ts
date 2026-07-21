@@ -197,5 +197,17 @@ export const CrmMessages = {
     MOVEMENT_NOT_EXIT: "Ce mouvement n'est pas une sortie de stock.",
     EXIT_ALREADY_FOR_INVOICE:
       'Une sortie de stock existe déjà pour cette facture.',
+    TRANSFER_NOT_FOUND: 'Transfert introuvable.',
+    TRANSFER_SAME_WAREHOUSE:
+      'L’entrepôt source et l’entrepôt destination doivent être distincts.',
+    TRANSFER_INVALID_STATUS:
+      'Cette action n’est pas autorisée pour le statut actuel du transfert.',
+    TRANSFER_VARIANCE_REASON_REQUIRED:
+      'Un motif d’écart est obligatoire lorsque la quantité reçue diffère de la quantité expédiée.',
+    TRANSFER_ALREADY_SHIPPED: 'Ce transfert a déjà été expédié.',
+    TRANSFER_NOT_IN_TRANSIT:
+      'Seuls les transferts en transit peuvent être réceptionnés.',
+    TRANSFER_CANCEL_AFTER_SHIP:
+      'Impossible d’annuler un transfert déjà expédié.',
   },
 } as const;

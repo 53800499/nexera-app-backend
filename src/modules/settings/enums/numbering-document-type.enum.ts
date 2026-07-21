@@ -8,4 +8,5 @@ export enum NumberingDocumentType {
   CATALOG_ITEM = 'catalog_item',
   STOCK_RECEIPT = 'stock_receipt',
   STOCK_ISSUE = 'stock_issue',
+  STOCK_TRANSFER = 'stock_transfer',
 }

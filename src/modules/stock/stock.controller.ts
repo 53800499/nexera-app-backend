@@ -24,9 +24,14 @@ import { CreateWarehouseDto } from './dto/create-warehouse.dto';
 import { UpdateWarehouseDto } from './dto/update-warehouse.dto';
 import { CreateWarehouseLocationDto } from './dto/create-warehouse-location.dto';
 import { UpdateWarehouseLocationDto } from './dto/update-warehouse-location.dto';
+import { StockExitsService } from './stock-exits.service';
+import { StockTransfersService } from './stock-transfers.service';
 import { CreateStockEntryDto } from './dto/create-stock-entry.dto';
 import { CreateStockExitDto } from './dto/create-stock-exit.dto';
-import { StockExitsService } from './stock-exits.service';
+import {
+  CreateStockTransferDto,
+  ReceiveStockTransferDto,
+} from './dto/create-stock-transfer.dto';
 
 @ApiTags('stock')
 @ApiBearerAuth('access-token')
@@ -37,7 +42,97 @@ export class StockController {
     private readonly warehousesService: WarehousesService,
     private readonly stockMovementsService: StockMovementsService,
     private readonly stockExitsService: StockExitsService,
+    private readonly stockTransfersService: StockTransfersService,
   ) {}
+
+  // ── Transferts inter-entrepôts (UC-S05) ────────────────────────────
+
+  @Get('transfers')
+  @Permissions('stock.read')
+  @ApiOperation({ summary: 'Lister les transferts inter-entrepôts (UC-S05)' })
+  findTransfers(@Request() req: { user: { tenantId: string } }) {
+    return this.stockTransfersService.findAll(req.user.tenantId);
+  }
+
+  @Get('transfers/:id')
+  @Permissions('stock.read')
+  @ApiOperation({ summary: 'Détail d’un transfert' })
+  findOneTransfer(
+    @Param('id') id: string,
+    @Request() req: { user: { tenantId: string } },
+  ) {
+    return this.stockTransfersService.findOne(id, req.user.tenantId);
+  }
+
+  @Post('transfers')
+  @Permissions('manage:stock')
+  @ApiOperation({ summary: 'Créer un transfert (brouillon)' })
+  createTransfer(
+    @Body() dto: CreateStockTransferDto,
+    @Request() req: { user: { tenantId: string; sub: string } },
+  ) {
+    return this.stockTransfersService.create(
+      dto,
+      req.user.tenantId,
+      req.user.sub,
+    );
+  }
+
+  @Post('transfers/:id/submit')
+  @Permissions('manage:stock')
+  @ApiOperation({ summary: 'Soumettre le transfert (en attente départ)' })
+  submitTransfer(
+    @Param('id') id: string,
+    @Request() req: { user: { tenantId: string } },
+  ) {
+    return this.stockTransfersService.submit(id, req.user.tenantId);
+  }
+
+  @Post('transfers/:id/ship')
+  @Permissions('manage:stock')
+  @ApiOperation({
+    summary:
+      'Valider le départ / expédier — stock source diminué → EN TRANSIT',
+  })
+  shipTransfer(
+    @Param('id') id: string,
+    @Request() req: { user: { tenantId: string; sub: string } },
+  ) {
+    return this.stockTransfersService.ship(
+      id,
+      req.user.tenantId,
+      req.user.sub,
+    );
+  }
+
+  @Post('transfers/:id/receive')
+  @Permissions('manage:stock')
+  @ApiOperation({
+    summary:
+      'Confirmer la réception — stock destination augmenté → COMPLÉTÉ',
+  })
+  receiveTransfer(
+    @Param('id') id: string,
+    @Body() dto: ReceiveStockTransferDto,
+    @Request() req: { user: { tenantId: string; sub: string } },
+  ) {
+    return this.stockTransfersService.receive(
+      id,
+      dto,
+      req.user.tenantId,
+      req.user.sub,
+    );
+  }
+
+  @Post('transfers/:id/cancel')
+  @Permissions('manage:stock')
+  @ApiOperation({ summary: 'Annuler un transfert (avant expédition)' })
+  cancelTransfer(
+    @Param('id') id: string,
+    @Request() req: { user: { tenantId: string } },
+  ) {
+    return this.stockTransfersService.cancel(id, req.user.tenantId);
+  }
 
   // ── Mouvements / entrées (UC-S03) ─────────────────────────────────
 

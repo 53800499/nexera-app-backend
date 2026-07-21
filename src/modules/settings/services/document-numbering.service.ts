@@ -208,6 +208,7 @@ export class DocumentNumberingService {
           })
         )?.reference ?? null;
       case NumberingDocumentType.STOCK_RECEIPT:
+      case NumberingDocumentType.STOCK_ISSUE:
         return (
           await db.stockMovement.findFirst({
             where: { tenantId, number: { startsWith: prefix } },
@@ -215,9 +216,9 @@ export class DocumentNumberingService {
             select: { number: true },
           })
         )?.number ?? null;
-      case NumberingDocumentType.STOCK_ISSUE:
+      case NumberingDocumentType.STOCK_TRANSFER:
         return (
-          await db.stockMovement.findFirst({
+          await db.stockTransfer.findFirst({
             where: { tenantId, number: { startsWith: prefix } },
             orderBy: { number: 'desc' },
             select: { number: true },
@@ -264,6 +265,11 @@ export class DocumentNumberingService {
       case NumberingDocumentType.STOCK_RECEIPT:
       case NumberingDocumentType.STOCK_ISSUE:
         return !!(await db.stockMovement.findFirst({
+          where: { number },
+          select: { id: true },
+        }));
+      case NumberingDocumentType.STOCK_TRANSFER:
+        return !!(await db.stockTransfer.findFirst({
           where: { number },
           select: { id: true },
         }));

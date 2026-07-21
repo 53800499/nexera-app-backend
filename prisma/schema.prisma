@@ -91,6 +91,7 @@ enum NumberingDocumentType {
   catalog_item
   stock_receipt
   stock_issue
+  stock_transfer
 }
 
 enum EmailTemplateType {
@@ -1055,6 +1056,8 @@ model Warehouse {
   defaultForStockItems StockItem[]         @relation("StockItemDefaultWarehouse")
   stockLevels          StockLevel[]
   movements            StockMovement[]
+  transfersAsSource    StockTransfer[]     @relation("TransferSourceWarehouse")
+  transfersAsDest      StockTransfer[]     @relation("TransferDestWarehouse")
 
   @@unique([tenantId, code])
   @@index([tenantId])
@@ -1080,6 +1083,8 @@ model WarehouseLocation {
   stockLevels          StockLevel[]
   movementLines        StockMovementLine[]
   serials              StockItemSerial[]
+  transferLinesSource  StockTransferLine[] @relation("TransferLineSourceLocation")
+  transferLinesDest    StockTransferLine[] @relation("TransferLineDestLocation")
 
   @@unique([tenantId, code])
   @@index([tenantId])
@@ -1115,6 +1120,7 @@ model StockItem {
   serials          StockItemSerial[]
   levels           StockLevel[]
   movementLines    StockMovementLine[]
+  transferLines    StockTransferLine[]
 
   @@unique([commercialItemId])
   @@index([tenantId])
@@ -1182,6 +1188,7 @@ model StockItemLot {
   levels        StockLevel[]
   movementLines StockMovementLine[]
   serials       StockItemSerial[]
+  transferLines StockTransferLine[]
 
   @@unique([stockItemId, lotNumber])
   @@index([tenantId])
@@ -1299,6 +1306,71 @@ model StockMovementLine {
   @@index([stockItemId, lotId])
   @@index([tenantId])
   @@map("stock_movement_lines")
+}
+
+enum StockTransferStatus {
+  draft
+  pending
+  in_transit
+  received
+  completed
+  cancelled
+}
+
+model StockTransfer {
+  id                 String              @id @default(uuid())
+  tenantId           String              @map("tenant_id")
+  number             String
+  status             StockTransferStatus @default(draft)
+  sourceWarehouseId  String              @map("source_warehouse_id")
+  destWarehouseId    String              @map("dest_warehouse_id")
+  plannedDate        DateTime?           @map("planned_date") @db.Date
+  shippedAt          DateTime?           @map("shipped_at")
+  receivedAt         DateTime?           @map("received_at")
+  movementOutId      String?             @map("movement_out_id")
+  movementInId       String?             @map("movement_in_id")
+  shippedBy          String?             @map("shipped_by")
+  receivedBy         String?             @map("received_by")
+  varianceReason     String?             @map("variance_reason")
+  notes              String?
+  createdBy          String              @map("created_by")
+  createdAt          DateTime            @default(now()) @map("created_at")
+  updatedAt          DateTime            @updatedAt @map("updated_at")
+
+  sourceWarehouse Warehouse          @relation("TransferSourceWarehouse", fields: [sourceWarehouseId], references: [id])
+  destWarehouse   Warehouse          @relation("TransferDestWarehouse", fields: [destWarehouseId], references: [id])
+  lines           StockTransferLine[]
+
+  @@unique([tenantId, number])
+  @@index([tenantId, status])
+  @@map("stock_transfers")
+}
+
+model StockTransferLine {
+  id                String   @id @default(uuid())
+  tenantId          String   @map("tenant_id")
+  transferId        String   @map("transfer_id")
+  stockItemId       String   @map("stock_item_id")
+  lotId             String?  @map("lot_id")
+  lotNumber         String?  @map("lot_number")
+  serialNumbers     String[] @default([]) @map("serial_numbers")
+  sourceLocationId  String?  @map("source_location_id")
+  destLocationId    String?  @map("dest_location_id")
+  qtyPlanned        Float    @default(0) @map("qty_planned")
+  qtyShipped        Float    @default(0) @map("qty_shipped")
+  qtyReceived       Float?   @map("qty_received")
+  unitCost          Float    @default(0) @map("unit_cost")
+  varianceReason    String?  @map("variance_reason")
+
+  transfer       StockTransfer      @relation(fields: [transferId], references: [id], onDelete: Cascade)
+  stockItem      StockItem          @relation(fields: [stockItemId], references: [id])
+  lot            StockItemLot?      @relation(fields: [lotId], references: [id])
+  sourceLocation WarehouseLocation? @relation("TransferLineSourceLocation", fields: [sourceLocationId], references: [id])
+  destLocation   WarehouseLocation? @relation("TransferLineDestLocation", fields: [destLocationId], references: [id])
+
+  @@index([transferId])
+  @@index([tenantId])
+  @@map("stock_transfer_lines")
 }
 
 model SyncDevice {
