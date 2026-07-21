@@ -60,6 +60,20 @@ export const DEFAULT_NUMBERING_RULES: Array<{
     counterLength: 6,
     annualReset: false,
   },
+  {
+    documentType: NumberingDocumentType.STOCK_RECEIPT,
+    prefix: 'BRE',
+    includeYear: true,
+    counterLength: 6,
+    annualReset: true,
+  },
+  {
+    documentType: NumberingDocumentType.STOCK_ISSUE,
+    prefix: 'BST',
+    includeYear: true,
+    counterLength: 6,
+    annualReset: true,
+  },
 ];
 
 export const DEFAULT_TAX_RATES = [

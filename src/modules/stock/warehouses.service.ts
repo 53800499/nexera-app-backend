@@ -218,6 +218,14 @@ export class WarehousesService {
    * (évoluera vers stock_levels.qty_on_hand quand disponible)
    */
   private async assertCanArchive(warehouseId: string, tenantId: string) {
+    const levelWithStock = await this.prisma.stockLevel.findFirst({
+      where: { tenantId, warehouseId, qtyOnHand: { gt: 0 } },
+      select: { id: true },
+    });
+    if (levelWithStock) {
+      throw new BadRequestException(CrmMessages.stock.WAREHOUSE_HAS_STOCK);
+    }
+
     const withStock = await this.prisma.stockItem.findFirst({
       where: {
         tenantId,

@@ -89,6 +89,8 @@ enum NumberingDocumentType {
   invoice_issued
   client
   catalog_item
+  stock_receipt
+  stock_issue
 }
 
 enum EmailTemplateType {
@@ -1051,6 +1053,8 @@ model Warehouse {
 
   locations            WarehouseLocation[]
   defaultForStockItems StockItem[]         @relation("StockItemDefaultWarehouse")
+  stockLevels          StockLevel[]
+  movements            StockMovement[]
 
   @@unique([tenantId, code])
   @@index([tenantId])
@@ -1071,8 +1075,11 @@ model WarehouseLocation {
   isActive    Boolean  @default(true) @map("is_active")
   createdAt   DateTime @default(now()) @map("created_at")
 
-  warehouse            Warehouse   @relation(fields: [warehouseId], references: [id], onDelete: Cascade)
-  defaultForStockItems StockItem[] @relation("StockItemDefaultLocation")
+  warehouse            Warehouse           @relation(fields: [warehouseId], references: [id], onDelete: Cascade)
+  defaultForStockItems StockItem[]         @relation("StockItemDefaultLocation")
+  stockLevels          StockLevel[]
+  movementLines        StockMovementLine[]
+  serials              StockItemSerial[]
 
   @@unique([tenantId, code])
   @@index([tenantId])
@@ -1101,14 +1108,197 @@ model StockItem {
   createdAt           DateTime              @default(now()) @map("created_at")
   updatedAt           DateTime              @updatedAt @map("updated_at")
 
-  commercialItem   CatalogItem        @relation(fields: [commercialItemId], references: [id], onDelete: Cascade)
-  defaultWarehouse Warehouse?         @relation("StockItemDefaultWarehouse", fields: [defaultWarehouseId], references: [id])
-  defaultLocation  WarehouseLocation? @relation("StockItemDefaultLocation", fields: [defaultLocationId], references: [id])
+  commercialItem   CatalogItem         @relation(fields: [commercialItemId], references: [id], onDelete: Cascade)
+  defaultWarehouse Warehouse?          @relation("StockItemDefaultWarehouse", fields: [defaultWarehouseId], references: [id])
+  defaultLocation  WarehouseLocation?  @relation("StockItemDefaultLocation", fields: [defaultLocationId], references: [id])
+  lots             StockItemLot[]
+  serials          StockItemSerial[]
+  levels           StockLevel[]
+  movementLines    StockMovementLine[]
 
   @@unique([commercialItemId])
   @@index([tenantId])
   @@index([tenantId, valuationMethod])
   @@map("stock_items")
+}
+
+enum StockMovementType {
+  IN_SUPPLIER
+  IN_RETURN
+  IN_PRODUCTION
+  IN_ADJUSTMENT
+  IN_INITIAL
+  OUT_SALE
+  OUT_CONSUMPTION
+  OUT_LOSS
+  OUT_RETURN_SUPPLIER
+  OUT_ADJUSTMENT
+  TRANSFER_OUT
+  TRANSFER_IN
+}
+
+enum StockMovementStatus {
+  draft
+  validated
+  cancelled
+}
+
+enum StockQualityStatus {
+  accepted
+  partial
+  rejected
+}
+
+enum StockSerialStatus {
+  in_stock
+  sold
+  transferred
+  scrapped
+}
+
+enum StockAlertLevel {
+  ok
+  warning
+  critical
+}
+
+model StockItemLot {
+  id               String   @id @default(uuid())
+  tenantId         String   @map("tenant_id")
+  stockItemId      String   @map("stock_item_id")
+  lotNumber        String   @map("lot_number")
+  manufactureDate  DateTime? @map("manufacture_date") @db.Date
+  expiryDate       DateTime? @map("expiry_date") @db.Date
+  receivedDate     DateTime @default(now()) @map("received_date") @db.Date
+  supplierId       String?  @map("supplier_id")
+  initialQty       Float    @default(0) @map("initial_qty")
+  remainingQty     Float    @default(0) @map("remaining_qty")
+  unitCost         Float    @default(0) @map("unit_cost")
+  isQuarantine     Boolean  @default(false) @map("is_quarantine")
+  quarantineReason String?  @map("quarantine_reason")
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  stockItem     StockItem           @relation(fields: [stockItemId], references: [id], onDelete: Cascade)
+  levels        StockLevel[]
+  movementLines StockMovementLine[]
+  serials       StockItemSerial[]
+
+  @@unique([stockItemId, lotNumber])
+  @@index([tenantId])
+  @@index([expiryDate])
+  @@map("stock_item_lots")
+}
+
+model StockItemSerial {
+  id             String            @id @default(uuid())
+  tenantId       String            @map("tenant_id")
+  stockItemId    String            @map("stock_item_id")
+  serialNumber   String            @map("serial_number")
+  lotId          String?           @map("lot_id")
+  status         StockSerialStatus @default(in_stock)
+  warehouseId    String?           @map("warehouse_id")
+  locationId     String?           @map("location_id")
+  receivedDate   DateTime          @default(now()) @map("received_date") @db.Date
+  soldInvoiceId  String?           @map("sold_invoice_id")
+  createdAt      DateTime          @default(now()) @map("created_at")
+  updatedAt      DateTime          @updatedAt @map("updated_at")
+
+  stockItem StockItem          @relation(fields: [stockItemId], references: [id], onDelete: Cascade)
+  lot       StockItemLot?      @relation(fields: [lotId], references: [id])
+  location  WarehouseLocation? @relation(fields: [locationId], references: [id])
+
+  @@unique([stockItemId, serialNumber])
+  @@index([tenantId])
+  @@map("stock_item_serials")
+}
+
+model StockLevel {
+  id            String          @id @default(uuid())
+  tenantId      String          @map("tenant_id")
+  stockItemId   String          @map("stock_item_id")
+  warehouseId   String          @map("warehouse_id")
+  locationId    String?         @map("location_id")
+  lotId         String?         @map("lot_id")
+  qtyOnHand     Float           @default(0) @map("qty_on_hand")
+  qtyReserved   Float           @default(0) @map("qty_reserved")
+  qtyAvailable  Float           @default(0) @map("qty_available")
+  qtyIncoming   Float           @default(0) @map("qty_incoming")
+  unitValue     Float           @default(0) @map("unit_value")
+  totalValue    Float           @default(0) @map("total_value")
+  alertLevel    StockAlertLevel @default(ok) @map("alert_level")
+  updatedAt     DateTime        @updatedAt @map("updated_at")
+
+  stockItem StockItem          @relation(fields: [stockItemId], references: [id], onDelete: Cascade)
+  warehouse Warehouse          @relation(fields: [warehouseId], references: [id])
+  location  WarehouseLocation? @relation(fields: [locationId], references: [id])
+  lot       StockItemLot?      @relation(fields: [lotId], references: [id])
+
+  @@index([tenantId, stockItemId, warehouseId])
+  @@index([tenantId, alertLevel])
+  @@index([stockItemId, lotId])
+  @@map("stock_levels")
+}
+
+model StockMovement {
+  id                 String              @id @default(uuid())
+  tenantId           String              @map("tenant_id")
+  number             String
+  movementType       StockMovementType   @map("movement_type")
+  status             StockMovementStatus @default(draft)
+  warehouseId        String              @map("warehouse_id")
+  movementDate       DateTime            @default(now()) @map("movement_date") @db.Date
+  reference          String?
+  invoiceId          String?             @map("invoice_id")
+  transferId         String?             @map("transfer_id")
+  inventorySessionId String?             @map("inventory_session_id")
+  supplierId         String?             @map("supplier_id")
+  qualityStatus      StockQualityStatus? @map("quality_status")
+  reason             String?
+  approvedBy         String?             @map("approved_by")
+  approvedAt         DateTime?           @map("approved_at")
+  notes              String?
+  createdBy          String              @map("created_by")
+  createdAt          DateTime            @default(now()) @map("created_at")
+  updatedAt          DateTime            @updatedAt @map("updated_at")
+
+  warehouse Warehouse           @relation(fields: [warehouseId], references: [id])
+  lines     StockMovementLine[]
+
+  @@unique([tenantId, number])
+  @@index([tenantId, movementType, movementDate])
+  @@index([invoiceId])
+  @@map("stock_movements")
+}
+
+model StockMovementLine {
+  id           String   @id @default(uuid())
+  tenantId     String   @map("tenant_id")
+  movementId   String   @map("movement_id")
+  stockItemId  String   @map("stock_item_id")
+  lotId        String?  @map("lot_id")
+  serialIds    String[] @default([]) @map("serial_ids")
+  locationId   String?  @map("location_id")
+  qtyPlanned   Float    @default(0) @map("qty_planned")
+  qtyActual    Float    @default(0) @map("qty_actual")
+  unitCost     Float    @default(0) @map("unit_cost")
+  totalCost    Float    @default(0) @map("total_cost")
+  cmupBefore   Float?   @map("cmup_before")
+  cmupAfter    Float?   @map("cmup_after")
+  expiryDate   DateTime? @map("expiry_date") @db.Date
+  /// Traçabilité saisie à la réception (avant création du lot)
+  lotNumber    String?  @map("lot_number")
+  manufactureDate DateTime? @map("manufacture_date") @db.Date
+  serialNumbers String[] @default([]) @map("serial_numbers")
+
+  movement  StockMovement      @relation(fields: [movementId], references: [id], onDelete: Cascade)
+  stockItem StockItem          @relation(fields: [stockItemId], references: [id])
+  lot       StockItemLot?      @relation(fields: [lotId], references: [id])
+  location  WarehouseLocation? @relation(fields: [locationId], references: [id])
+
+  @@index([movementId])
+  @@index([stockItemId, lotId])
+  @@index([tenantId])
+  @@map("stock_movement_lines")
 }
 
 model SyncDevice {

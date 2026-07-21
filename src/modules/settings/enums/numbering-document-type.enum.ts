@@ -6,4 +6,6 @@ export enum NumberingDocumentType {
   INVOICE_ISSUED = 'invoice_issued',
   CLIENT = 'client',
   CATALOG_ITEM = 'catalog_item',
+  STOCK_RECEIPT = 'stock_receipt',
+  STOCK_ISSUE = 'stock_issue',
 }

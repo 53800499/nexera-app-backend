@@ -207,6 +207,22 @@ export class DocumentNumberingService {
             select: { reference: true },
           })
         )?.reference ?? null;
+      case NumberingDocumentType.STOCK_RECEIPT:
+        return (
+          await db.stockMovement.findFirst({
+            where: { tenantId, number: { startsWith: prefix } },
+            orderBy: { number: 'desc' },
+            select: { number: true },
+          })
+        )?.number ?? null;
+      case NumberingDocumentType.STOCK_ISSUE:
+        return (
+          await db.stockMovement.findFirst({
+            where: { tenantId, number: { startsWith: prefix } },
+            orderBy: { number: 'desc' },
+            select: { number: true },
+          })
+        )?.number ?? null;
       default:
         return null;
     }
@@ -243,6 +259,12 @@ export class DocumentNumberingService {
       case NumberingDocumentType.CATALOG_ITEM:
         return !!(await db.catalogItem.findUnique({
           where: { reference: number },
+          select: { id: true },
+        }));
+      case NumberingDocumentType.STOCK_RECEIPT:
+      case NumberingDocumentType.STOCK_ISSUE:
+        return !!(await db.stockMovement.findFirst({
+          where: { number },
           select: { id: true },
         }));
       default:

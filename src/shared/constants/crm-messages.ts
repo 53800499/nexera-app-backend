@@ -159,5 +159,43 @@ export const CrmMessages = {
       'Le facteur de conversion doit être strictement positif.',
     VALUATION_METHOD_IMMUTABLE:
       'La méthode de valorisation ne peut pas être modifiée tant que le stock est positif (RM-S01).',
+    MOVEMENT_NOT_FOUND: 'Mouvement de stock introuvable.',
+    MOVEMENT_ALREADY_VALIDATED: 'Ce mouvement est déjà validé (RM-IN05).',
+    MOVEMENT_CANCELLED: 'Ce mouvement est annulé.',
+    MOVEMENT_NOT_ENTRY: "Ce mouvement n'est pas une entrée de stock.",
+    QTY_POSITIVE_REQUIRED:
+      'La quantité reçue doit être strictement supérieure à 0 (RM-IN02).',
+    QTY_ACTUAL_EXCEEDS:
+      'La quantité acceptée ne peut pas dépasser la quantité reçue.',
+    UNIT_COST_NEGATIVE: 'Le coût unitaire ne peut pas être négatif.',
+    REASON_REQUIRED:
+      'Un motif est obligatoire pour un ajustement positif.',
+    LOT_REQUIRED:
+      'Un numéro de lot est obligatoire pour cet article (RM-S02).',
+    LOT_DUPLICATE:
+      'Ce numéro de lot a déjà été réceptionné pour cet article (RM-IN04).',
+    SERIAL_COUNT_MISMATCH:
+      'Le nombre de numéros de série doit correspondre à la quantité acceptée.',
+    EXPIRY_REQUIRED:
+      'La date de péremption est obligatoire pour cet article.',
+    INITIAL_ENTRY_ONCE:
+      'Le stock initial ne peut être saisi qu’une seule fois par article.',
+    INSUFFICIENT_STOCK:
+      'Stock insuffisant pour cette sortie (RM-OUT01).',
+    COST_CENTER_REQUIRED:
+      'Le centre de coût est obligatoire pour une sortie consommation.',
+    LOSS_REASON_REQUIRED:
+      'Un motif détaillé est obligatoire pour une perte / ajustement négatif.',
+    LOSS_REQUIRES_APPROVAL:
+      'Cette perte dépasse le seuil paramétré : validation responsable requise (RM-OUT04). Enregistrez en brouillon puis validez.',
+    LOT_REQUIRED_OUT:
+      'Le lot à sortir doit être précisé pour cet article (RM-OUT05).',
+    SERIAL_REQUIRED_OUT:
+      'Les numéros de série à sortir doivent être précisés (RM-OUT05).',
+    SERIAL_NOT_IN_STOCK:
+      'Un ou plusieurs numéros de série ne sont pas disponibles en stock.',
+    MOVEMENT_NOT_EXIT: "Ce mouvement n'est pas une sortie de stock.",
+    EXIT_ALREADY_FOR_INVOICE:
+      'Une sortie de stock existe déjà pour cette facture.',
   },
 } as const;
