@@ -4,8 +4,8 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { CatalogItemType, Prisma, StockValuationMethod } from '@prisma/client';
-import { PrismaService } from '../../infrastructure/database/prisma.service';
-import { CrmMessages } from '../../shared/constants/crm-messages';
+import { PrismaService } from '../../../infrastructure/database/prisma.service';
+import { CrmMessages } from '../../../shared/constants/crm-messages';
 import { CreateStockItemDto } from './dto/create-stock-item.dto';
 import { UpdateStockItemDto } from './dto/update-stock-item.dto';
 
@@ -152,6 +152,7 @@ export class StockItemsService {
         trackLots: dto.trackLots ?? false,
         trackSerials: dto.trackSerials ?? false,
         trackExpiry: dto.trackExpiry ?? false,
+        expiryAlertDays: dto.expiryAlertDays ?? 30,
         valuationMethod:
           (dto.valuationMethod as StockValuationMethod) ??
           StockValuationMethod.cmup,
@@ -213,6 +214,7 @@ export class StockItemsService {
         trackLots: dto.trackLots,
         trackSerials: dto.trackSerials,
         trackExpiry: dto.trackExpiry,
+        expiryAlertDays: dto.expiryAlertDays,
         valuationMethod: dto.valuationMethod as StockValuationMethod | undefined,
         storageUnit: dto.storageUnit?.trim(),
         conversionFactor: dto.conversionFactor,

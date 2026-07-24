@@ -81,6 +81,20 @@ export const DEFAULT_NUMBERING_RULES: Array<{
     counterLength: 6,
     annualReset: true,
   },
+  {
+    documentType: NumberingDocumentType.STOCK_INVENTORY,
+    prefix: 'INV',
+    includeYear: true,
+    counterLength: 6,
+    annualReset: true,
+  },
+  {
+    documentType: NumberingDocumentType.PURCHASE_REQUEST,
+    prefix: 'DAP',
+    includeYear: true,
+    counterLength: 6,
+    annualReset: true,
+  },
 ];
 
 export const DEFAULT_TAX_RATES = [

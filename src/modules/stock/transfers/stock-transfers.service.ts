@@ -11,16 +11,18 @@ import {
   StockSerialStatus,
   StockTransferStatus,
 } from '@prisma/client';
-import { PrismaService } from '../../infrastructure/database/prisma.service';
-import { DocumentNumberingService } from '../settings/services/document-numbering.service';
-import { NumberingDocumentType } from '../settings/enums/numbering-document-type.enum';
-import { CrmMessages } from '../../shared/constants/crm-messages';
+import { PrismaService } from '../../../infrastructure/database/prisma.service';
+import { DocumentNumberingService } from '../../settings/services/document-numbering.service';
+import { NumberingDocumentType } from '../../settings/enums/numbering-document-type.enum';
+import { CrmMessages } from '../../../shared/constants/crm-messages';
 import {
   CreateStockTransferDto,
   CreateStockTransferLineDto,
   ReceiveStockTransferDto,
 } from './dto/create-stock-transfer.dto';
-import { StockIntegrationService } from './stock-integration.service';
+import { StockIntegrationService } from '../stock-integration.service';
+import { InventoryFreezeGuard } from '../inventory/inventory-freeze.guard';
+import { toIntegrationAlertLevel } from '../events/stock.events';
 
 const transferInclude = {
   sourceWarehouse: { select: { id: true, code: true, name: true } },
@@ -47,6 +49,7 @@ export class StockTransfersService {
     private readonly prisma: PrismaService,
     private readonly numberingService: DocumentNumberingService,
     private readonly stockIntegration: StockIntegrationService,
+    private readonly inventoryFreeze: InventoryFreezeGuard,
   ) {}
 
   async findAll(tenantId: string) {
@@ -184,10 +187,21 @@ export class StockTransfersService {
       throw new BadRequestException(CrmMessages.stock.TRANSFER_ALREADY_SHIPPED);
     }
 
+    await this.inventoryFreeze.assertNotFrozen(
+      tenantId,
+      transfer.sourceWarehouseId,
+    );
+    await this.inventoryFreeze.assertNotFrozen(
+      tenantId,
+      transfer.destWarehouseId,
+    );
+
     const levelUpdates: Array<{
-      commercialItemId: string;
+      itemId: string;
+      warehouseId: string;
+      newQtyAvailable: number;
+      alertLevel: ReturnType<typeof toIntegrationAlertLevel>;
       reference: string;
-      quantity: number;
     }> = [];
 
     await this.prisma.$transaction(async (tx) => {
@@ -346,14 +360,27 @@ export class StockTransfersService {
           data: { qtyShipped: qtyOut, unitCost },
         });
 
-        const totalOnHand = await tx.stockLevel.aggregate({
-          where: { tenantId, stockItemId: stockItem.id },
-          _sum: { qtyOnHand: true },
+        const whAgg = await tx.stockLevel.aggregate({
+          where: {
+            tenantId,
+            stockItemId: stockItem.id,
+            warehouseId: transfer.sourceWarehouseId,
+          },
+          _sum: { qtyAvailable: true },
         });
+        const newQtyAvailable = whAgg._sum.qtyAvailable ?? 0;
         levelUpdates.push({
-          commercialItemId: stockItem.commercialItemId,
+          itemId: stockItem.commercialItemId,
+          warehouseId: transfer.sourceWarehouseId,
+          newQtyAvailable,
+          alertLevel: toIntegrationAlertLevel(
+            this.computeAlertLevel(
+              newQtyAvailable,
+              stockItem.minStockQty,
+              stockItem.safetyStockQty,
+            ),
+          ),
           reference: stockItem.commercialItem.reference,
-          quantity: totalOnHand._sum.qtyOnHand ?? 0,
         });
       }
 
@@ -369,11 +396,7 @@ export class StockTransfersService {
     });
 
     for (const update of levelUpdates) {
-      await this.stockIntegration.publishLevelUpdated(tenantId, {
-        itemId: update.commercialItemId,
-        reference: update.reference,
-        quantity: update.quantity,
-      });
+      await this.stockIntegration.publishLevelUpdated(tenantId, update);
     }
 
     return this.findOne(id, tenantId);
@@ -414,9 +437,11 @@ export class StockTransfersService {
     }
 
     const levelUpdates: Array<{
-      commercialItemId: string;
+      itemId: string;
+      warehouseId: string;
+      newQtyAvailable: number;
+      alertLevel: ReturnType<typeof toIntegrationAlertLevel>;
       reference: string;
-      quantity: number;
     }> = [];
 
     await this.prisma.$transaction(async (tx) => {
@@ -593,14 +618,27 @@ export class StockTransfersService {
           },
         });
 
-        const totalOnHand = await tx.stockLevel.aggregate({
-          where: { tenantId, stockItemId: stockItem.id },
-          _sum: { qtyOnHand: true },
+        const whAgg = await tx.stockLevel.aggregate({
+          where: {
+            tenantId,
+            stockItemId: stockItem.id,
+            warehouseId: transfer.destWarehouseId,
+          },
+          _sum: { qtyAvailable: true },
         });
+        const newQtyAvailable = whAgg._sum.qtyAvailable ?? 0;
         levelUpdates.push({
-          commercialItemId: stockItem.commercialItemId,
+          itemId: stockItem.commercialItemId,
+          warehouseId: transfer.destWarehouseId,
+          newQtyAvailable,
+          alertLevel: toIntegrationAlertLevel(
+            this.computeAlertLevel(
+              newQtyAvailable,
+              stockItem.minStockQty,
+              stockItem.safetyStockQty,
+            ),
+          ),
           reference: stockItem.commercialItem.reference,
-          quantity: totalOnHand._sum.qtyOnHand ?? 0,
         });
       }
 
@@ -624,11 +662,7 @@ export class StockTransfersService {
     });
 
     for (const update of levelUpdates) {
-      await this.stockIntegration.publishLevelUpdated(tenantId, {
-        itemId: update.commercialItemId,
-        reference: update.reference,
-        quantity: update.quantity,
-      });
+      await this.stockIntegration.publishLevelUpdated(tenantId, update);
     }
 
     return this.findOne(id, tenantId);

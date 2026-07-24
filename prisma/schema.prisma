@@ -92,6 +92,8 @@ enum NumberingDocumentType {
   stock_receipt
   stock_issue
   stock_transfer
+  stock_inventory
+  purchase_request
 }
 
 enum EmailTemplateType {
@@ -1058,6 +1060,9 @@ model Warehouse {
   movements            StockMovement[]
   transfersAsSource    StockTransfer[]     @relation("TransferSourceWarehouse")
   transfersAsDest      StockTransfer[]     @relation("TransferDestWarehouse")
+  inventorySessions    InventorySession[]
+  alerts               StockAlert[]
+  replenishments       ReplenishmentProposal[]
 
   @@unique([tenantId, code])
   @@index([tenantId])
@@ -1085,6 +1090,7 @@ model WarehouseLocation {
   serials              StockItemSerial[]
   transferLinesSource  StockTransferLine[] @relation("TransferLineSourceLocation")
   transferLinesDest    StockTransferLine[] @relation("TransferLineDestLocation")
+  inventoryLines       InventoryCountLine[]
 
   @@unique([tenantId, code])
   @@index([tenantId])
@@ -1099,6 +1105,8 @@ model StockItem {
   trackLots           Boolean               @default(false) @map("track_lots")
   trackSerials        Boolean               @default(false) @map("track_serials")
   trackExpiry         Boolean               @default(false) @map("track_expiry")
+  /** Seuil alerte péremption (jours) — §3.3 */
+  expiryAlertDays     Int                   @default(30) @map("expiry_alert_days")
   valuationMethod     StockValuationMethod  @default(cmup) @map("valuation_method")
   storageUnit         String                @map("storage_unit")
   conversionFactor    Float                 @default(1) @map("conversion_factor")
@@ -1121,6 +1129,10 @@ model StockItem {
   levels           StockLevel[]
   movementLines    StockMovementLine[]
   transferLines    StockTransferLine[]
+  inventoryLines   InventoryCountLine[]
+  alerts           StockAlert[]
+  replenishments   ReplenishmentProposal[]
+  cmupHistory      StockCmupHistory[]
 
   @@unique([commercialItemId])
   @@index([tenantId])
@@ -1189,6 +1201,8 @@ model StockItemLot {
   movementLines StockMovementLine[]
   serials       StockItemSerial[]
   transferLines StockTransferLine[]
+  inventoryLines InventoryCountLine[]
+  alerts         StockAlert[]
 
   @@unique([stockItemId, lotNumber])
   @@index([tenantId])
@@ -1270,10 +1284,12 @@ model StockMovement {
 
   warehouse Warehouse           @relation(fields: [warehouseId], references: [id])
   lines     StockMovementLine[]
+  inventorySession InventorySession? @relation(fields: [inventorySessionId], references: [id])
 
   @@unique([tenantId, number])
   @@index([tenantId, movementType, movementDate])
   @@index([invoiceId])
+  @@index([inventorySessionId])
   @@map("stock_movements")
 }
 
@@ -1371,6 +1387,192 @@ model StockTransferLine {
   @@index([transferId])
   @@index([tenantId])
   @@map("stock_transfer_lines")
+}
+
+enum InventorySessionType {
+  total
+  partial
+}
+
+enum InventorySessionStatus {
+  draft
+  counting
+  recount
+  analyzing
+  validated
+  closed
+  cancelled
+}
+
+model InventorySession {
+  id                      String                  @id @default(uuid())
+  tenantId                String                  @map("tenant_id")
+  number                  String
+  type                    InventorySessionType
+  status                  InventorySessionStatus  @default(draft)
+  warehouseId             String                  @map("warehouse_id")
+  categoryId              String?                 @map("category_id")
+  plannedDate             DateTime?               @map("planned_date") @db.Date
+  freezeMovements         Boolean                 @default(true) @map("freeze_movements")
+  /// Écart qté déclenchant double comptage (RM-INV03). 0 = tout écart.
+  varianceThresholdQty    Float                   @default(0) @map("variance_threshold_qty")
+  /// Seuil d’écart significatif pour filtrage analyse (valeur)
+  significantVarianceValue Float                  @default(0) @map("significant_variance_value")
+  startedAt               DateTime?               @map("started_at")
+  validatedAt             DateTime?               @map("validated_at")
+  closedAt                DateTime?               @map("closed_at")
+  validatedBy             String?                 @map("validated_by")
+  closedBy                String?                 @map("closed_by")
+  notes                   String?
+  createdBy               String                  @map("created_by")
+  createdAt               DateTime                @default(now()) @map("created_at")
+  updatedAt               DateTime                @updatedAt @map("updated_at")
+
+  warehouse Warehouse            @relation(fields: [warehouseId], references: [id])
+  lines     InventoryCountLine[]
+  movements StockMovement[]
+
+  @@unique([tenantId, number])
+  @@index([tenantId, status])
+  @@index([warehouseId, status])
+  @@map("inventory_sessions")
+}
+
+model InventoryCountLine {
+  id              String   @id @default(uuid())
+  tenantId        String   @map("tenant_id")
+  sessionId       String   @map("session_id")
+  stockItemId     String   @map("stock_item_id")
+  lotId           String?  @map("lot_id")
+  locationId      String?  @map("location_id")
+  qtyTheoretical  Float    @default(0) @map("qty_theoretical")
+  qtyCounted1     Float?   @map("qty_counted_1")
+  qtyCounted2     Float?   @map("qty_counted_2")
+  qtyFinal        Float?   @map("qty_final")
+  unitCost        Float    @default(0) @map("unit_cost")
+  varianceQty     Float?   @map("variance_qty")
+  varianceValue   Float?   @map("variance_value")
+  requiresRecount Boolean  @default(false) @map("requires_recount")
+  countedBy1      String?  @map("counted_by_1")
+  countedBy2      String?  @map("counted_by_2")
+  notes           String?
+
+  session   InventorySession   @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  stockItem StockItem          @relation(fields: [stockItemId], references: [id])
+  lot       StockItemLot?      @relation(fields: [lotId], references: [id])
+  location  WarehouseLocation? @relation(fields: [locationId], references: [id])
+
+  @@index([sessionId])
+  @@index([tenantId])
+  @@map("inventory_count_lines")
+}
+
+enum StockAlertType {
+  shortage
+  safety
+  overstock
+  expiry
+  dormant
+}
+
+enum StockAlertStatus {
+  open
+  acknowledged
+  resolved
+  dismissed
+}
+
+enum ReplenishmentProposalStatus {
+  pending
+  approved
+  rejected
+  cancelled
+}
+
+model StockAlert {
+  id              String           @id @default(uuid())
+  tenantId        String           @map("tenant_id")
+  alertType       StockAlertType   @map("alert_type")
+  status          StockAlertStatus @default(open)
+  severity        StockAlertLevel  @default(warning)
+  stockItemId     String           @map("stock_item_id")
+  warehouseId     String?          @map("warehouse_id")
+  lotId           String?          @map("lot_id")
+  qtyOnHand       Float            @default(0) @map("qty_on_hand")
+  thresholdQty    Float?           @map("threshold_qty")
+  /// Jours avant péremption (expiry) ou jours dormants (dormant) ou estimation rupture
+  daysMetric      Float?           @map("days_metric")
+  title           String
+  message         String
+  suggestion      String?
+  suggestedQty    Float?           @map("suggested_qty")
+  fingerprint     String
+  acknowledgedAt  DateTime?        @map("acknowledged_at")
+  acknowledgedBy  String?          @map("acknowledged_by")
+  resolvedAt      DateTime?        @map("resolved_at")
+  createdAt       DateTime         @default(now()) @map("created_at")
+  updatedAt       DateTime         @updatedAt @map("updated_at")
+
+  stockItem StockItem      @relation(fields: [stockItemId], references: [id], onDelete: Cascade)
+  warehouse Warehouse?     @relation(fields: [warehouseId], references: [id])
+  lot       StockItemLot?  @relation(fields: [lotId], references: [id])
+  replenishment ReplenishmentProposal?
+
+  @@unique([tenantId, fingerprint])
+  @@index([tenantId, status, alertType])
+  @@index([stockItemId])
+  @@map("stock_alerts")
+}
+
+model ReplenishmentProposal {
+  id              String                       @id @default(uuid())
+  tenantId        String                       @map("tenant_id")
+  number          String
+  status          ReplenishmentProposalStatus  @default(pending)
+  stockItemId     String                       @map("stock_item_id")
+  warehouseId     String                       @map("warehouse_id")
+  alertId         String?                      @unique @map("alert_id")
+  qtyProposed     Float                        @map("qty_proposed")
+  qtyConfigured   Float?                       @map("qty_configured")
+  qtyAiSuggested  Float?                       @map("qty_ai_suggested")
+  avgDailyUsage   Float?                       @map("avg_daily_usage")
+  daysToStockout  Float?                       @map("days_to_stockout")
+  reason          String?
+  notes           String?
+  decidedBy       String?                      @map("decided_by")
+  decidedAt       DateTime?                    @map("decided_at")
+  createdBy       String                       @map("created_by")
+  createdAt       DateTime                     @default(now()) @map("created_at")
+  updatedAt       DateTime                     @updatedAt @map("updated_at")
+
+  stockItem StockItem  @relation(fields: [stockItemId], references: [id])
+  warehouse Warehouse  @relation(fields: [warehouseId], references: [id])
+  alert     StockAlert? @relation(fields: [alertId], references: [id])
+
+  @@unique([tenantId, number])
+  @@index([tenantId, status])
+  @@map("replenishment_proposals")
+}
+
+/// Historique CMUP horodaté (RM-VAL02)
+model StockCmupHistory {
+  id            String   @id @default(uuid())
+  tenantId      String   @map("tenant_id")
+  stockItemId   String   @map("stock_item_id")
+  movementId    String?  @map("movement_id")
+  movementLineId String? @map("movement_line_id")
+  qtyBefore     Float    @map("qty_before")
+  qtyAfter      Float    @map("qty_after")
+  cmupBefore    Float    @map("cmup_before")
+  cmupAfter     Float    @map("cmup_after")
+  entryQty      Float    @map("entry_qty")
+  entryUnitCost Float    @map("entry_unit_cost")
+  recordedAt    DateTime @default(now()) @map("recorded_at")
+
+  stockItem StockItem @relation(fields: [stockItemId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, stockItemId, recordedAt])
+  @@map("stock_cmup_history")
 }
 
 model SyncDevice {

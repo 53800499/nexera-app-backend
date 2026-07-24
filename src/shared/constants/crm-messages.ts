@@ -209,5 +209,26 @@ export const CrmMessages = {
       'Seuls les transferts en transit peuvent être réceptionnés.',
     TRANSFER_CANCEL_AFTER_SHIP:
       'Impossible d’annuler un transfert déjà expédié.',
+    INVENTORY_NOT_FOUND: 'Session d’inventaire introuvable.',
+    INVENTORY_INVALID_STATUS:
+      'Cette action n’est pas autorisée pour le statut actuel de l’inventaire.',
+    INVENTORY_NO_LINES:
+      'Aucun article à inventarier pour ce périmètre.',
+    INVENTORY_COUNT_INCOMPLETE:
+      'Toutes les lignes doivent être comptées avant de poursuivre.',
+    INVENTORY_RECOUNT_INCOMPLETE:
+      'Les lignes en double comptage doivent être saisies (2e comptage).',
+    INVENTORY_MOVEMENTS_FROZEN:
+      'Mouvements bloqués : un inventaire est en cours sur cet entrepôt (RM-INV01).',
+    INVENTORY_CATEGORY_REQUIRED:
+      'Une catégorie est obligatoire pour un inventaire partiel.',
+    ALERT_NOT_FOUND: 'Alerte stock introuvable.',
+    ALERT_INVALID_STATUS:
+      'Cette action n’est pas autorisée pour le statut actuel de l’alerte.',
+    REPLENISHMENT_NOT_FOUND: 'Proposition de réapprovisionnement introuvable.',
+    REPLENISHMENT_INVALID_STATUS:
+      'Cette action n’est pas autorisée pour le statut actuel de la proposition.',
+    REPLENISHMENT_ALREADY_EXISTS:
+      'Une proposition de réapprovisionnement est déjà en cours pour cette alerte.',
   },
 } as const;

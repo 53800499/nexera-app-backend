@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import {
@@ -12,16 +13,18 @@ import {
   StockSerialStatus,
   StockValuationMethod,
 } from '@prisma/client';
-import { PrismaService } from '../../infrastructure/database/prisma.service';
-import { DocumentNumberingService } from '../settings/services/document-numbering.service';
-import { NumberingDocumentType } from '../settings/enums/numbering-document-type.enum';
-import { CrmMessages } from '../../shared/constants/crm-messages';
+import { PrismaService } from '../../../infrastructure/database/prisma.service';
+import { DocumentNumberingService } from '../../settings/services/document-numbering.service';
+import { NumberingDocumentType } from '../../settings/enums/numbering-document-type.enum';
+import { CrmMessages } from '../../../shared/constants/crm-messages';
 import {
   CreateStockEntryDto,
   CreateStockEntryLineDto,
   StockEntryTypeDto,
 } from './dto/create-stock-entry.dto';
-import { StockIntegrationService } from './stock-integration.service';
+import { StockIntegrationService } from '../stock-integration.service';
+import { InventoryFreezeGuard } from '../inventory/inventory-freeze.guard';
+import { toIntegrationAlertLevel } from '../events/stock.events';
 
 const ENTRY_TYPES = new Set<string>([
   StockMovementType.IN_SUPPLIER,
@@ -50,10 +53,13 @@ const movementInclude = {
 
 @Injectable()
 export class StockMovementsService {
+  private readonly logger = new Logger(StockMovementsService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly numberingService: DocumentNumberingService,
     private readonly stockIntegration: StockIntegrationService,
+    private readonly inventoryFreeze: InventoryFreezeGuard,
   ) {}
 
   async findEntries(tenantId: string) {
@@ -107,6 +113,8 @@ export class StockMovementsService {
     if (!warehouse) {
       throw new NotFoundException(CrmMessages.stock.WAREHOUSE_NOT_FOUND);
     }
+
+    await this.inventoryFreeze.assertNotFrozen(tenantId, dto.warehouseId);
 
     for (const line of dto.lines) {
       await this.assertEntryLine(line, tenantId, dto.movementType, dto.qualityStatus);
@@ -184,9 +192,11 @@ export class StockMovementsService {
     }
 
     const levelUpdates: Array<{
-      commercialItemId: string;
+      itemId: string;
+      warehouseId: string;
+      newQtyAvailable: number;
+      alertLevel: ReturnType<typeof toIntegrationAlertLevel>;
       reference: string;
-      quantity: number;
     }> = [];
 
     await this.prisma.$transaction(async (tx) => {
@@ -315,6 +325,25 @@ export class StockMovementsService {
           data: { currentCmup: cmupAfter },
         });
 
+        // RM-VAL02 — historique CMUP horodaté après chaque entrée
+        if (stockItem.valuationMethod === StockValuationMethod.cmup) {
+          await tx.stockCmupHistory.create({
+            data: {
+              tenantId,
+              stockItemId: stockItem.id,
+              movementId: movement.id,
+              movementLineId: line.id,
+              qtyBefore,
+              qtyAfter: qtyBefore + qtyIn,
+              cmupBefore,
+              cmupAfter,
+              entryQty: qtyIn,
+              entryUnitCost: line.unitCost,
+              recordedAt: movement.movementDate,
+            },
+          });
+        }
+
         const alertLevel = this.computeAlertLevel(
           qtyBefore + qtyIn,
           stockItem.minStockQty,
@@ -376,15 +405,27 @@ export class StockMovementsService {
           },
         });
 
-        const totalOnHand = await tx.stockLevel.aggregate({
-          where: { tenantId, stockItemId: stockItem.id },
-          _sum: { qtyOnHand: true },
+        const whAgg = await tx.stockLevel.aggregate({
+          where: {
+            tenantId,
+            stockItemId: stockItem.id,
+            warehouseId: movement.warehouseId,
+          },
+          _sum: { qtyAvailable: true },
         });
+        const newQtyAvailable = whAgg._sum.qtyAvailable ?? 0;
+        const whAlert = this.computeAlertLevel(
+          newQtyAvailable,
+          stockItem.minStockQty,
+          stockItem.safetyStockQty,
+        );
 
         levelUpdates.push({
-          commercialItemId: stockItem.commercialItemId,
+          itemId: stockItem.commercialItemId,
+          warehouseId: movement.warehouseId,
+          newQtyAvailable,
+          alertLevel: toIntegrationAlertLevel(whAlert),
           reference: stockItem.commercialItem.reference,
-          quantity: totalOnHand._sum.qtyOnHand ?? 0,
         });
       }
 
@@ -399,11 +440,7 @@ export class StockMovementsService {
     });
 
     for (const update of levelUpdates) {
-      await this.stockIntegration.publishLevelUpdated(tenantId, {
-        itemId: update.commercialItemId,
-        reference: update.reference,
-        quantity: update.quantity,
-      });
+      await this.stockIntegration.publishLevelUpdated(tenantId, update);
     }
 
     await this.stockIntegration.publishEntryCreated(tenantId, {
@@ -413,6 +450,105 @@ export class StockMovementsService {
     });
 
     return this.findOne(id, tenantId);
+  }
+
+  /**
+   * §4.2 — réintégration stock (IN_RETURN) suite à invoice.cancelled / credit_note.issued.
+   * Idempotent sur creditNoteId (stocké dans invoiceId du mouvement).
+   */
+  async createReturnFromCreditNote(
+    tenantId: string,
+    payload: {
+      creditNoteId: string;
+      creditNoteNumber: string;
+      originalInvoiceId: string;
+      lines: Array<{ itemId?: string | null; quantity: number; description?: string }>;
+      issueDate: Date | string;
+    },
+  ) {
+    const existing = await this.prisma.stockMovement.findFirst({
+      where: {
+        tenantId,
+        invoiceId: payload.creditNoteId,
+        movementType: StockMovementType.IN_RETURN,
+      },
+    });
+    if (existing) {
+      this.logger.warn(
+        `IN_RETURN already exists for credit note ${payload.creditNoteId}`,
+      );
+      return existing;
+    }
+
+    const originalExit = await this.prisma.stockMovement.findFirst({
+      where: {
+        tenantId,
+        invoiceId: payload.originalInvoiceId,
+        movementType: StockMovementType.OUT_SALE,
+        status: StockMovementStatus.validated,
+      },
+      select: { warehouseId: true },
+    });
+
+    const warehouse =
+      (originalExit
+        ? await this.prisma.warehouse.findFirst({
+            where: { id: originalExit.warehouseId, tenantId, isActive: true },
+          })
+        : null) ??
+      (await this.prisma.warehouse.findFirst({
+        where: { tenantId, isDefault: true, isActive: true },
+      }));
+
+    if (!warehouse) {
+      this.logger.warn(
+        `No warehouse for tenant ${tenantId} — skip IN_RETURN credit ${payload.creditNoteNumber}`,
+      );
+      return null;
+    }
+
+    const entryLines: CreateStockEntryLineDto[] = [];
+    for (const line of payload.lines) {
+      if (!line.itemId || line.quantity <= 0) continue;
+      const stockItem = await this.prisma.stockItem.findFirst({
+        where: { commercialItemId: line.itemId, tenantId },
+      });
+      if (!stockItem) continue;
+      entryLines.push({
+        stockItemId: stockItem.id,
+        qtyPlanned: line.quantity,
+        qtyActual: line.quantity,
+        unitCost: stockItem.currentCmup || 0,
+      });
+    }
+
+    if (entryLines.length === 0) {
+      this.logger.warn(
+        `credit_note ${payload.creditNoteNumber}: aucun article stock à réintégrer`,
+      );
+      return null;
+    }
+
+    const draft = await this.createEntry(
+      {
+        movementType: StockEntryTypeDto.IN_RETURN,
+        warehouseId: warehouse.id,
+        movementDate: new Date(payload.issueDate).toISOString(),
+        reference: payload.creditNoteNumber,
+        notes: `Réintégration auto avoir ${payload.creditNoteNumber} (facture ${payload.originalInvoiceId})`,
+        validate: false,
+        lines: entryLines,
+      },
+      tenantId,
+      'system',
+    );
+
+    await this.prisma.stockMovement.update({
+      where: { id: draft.id },
+      data: { invoiceId: payload.creditNoteId },
+    });
+
+    return this.validateEntry(draft.id, tenantId, 'system');
   }
 
   private resolveQtyActual(

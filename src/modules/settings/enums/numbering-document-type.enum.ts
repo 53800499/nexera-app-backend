@@ -9,4 +9,6 @@ export enum NumberingDocumentType {
   STOCK_RECEIPT = 'stock_receipt',
   STOCK_ISSUE = 'stock_issue',
   STOCK_TRANSFER = 'stock_transfer',
+  STOCK_INVENTORY = 'stock_inventory',
+  PURCHASE_REQUEST = 'purchase_request',
 }

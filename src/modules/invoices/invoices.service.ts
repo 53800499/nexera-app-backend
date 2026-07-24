@@ -28,6 +28,7 @@ import { InvoiceEntity } from './entities/invoice.entity';
 import { InvoiceCreatedEvent } from './events/invoice-created.event';
 import { InvoiceIssuedEvent } from './events/invoice-issued.event';
 import { InvoiceCancelledEvent } from './events/invoice-cancelled.event';
+import { CreditNoteIssuedEvent } from './events/credit-note-issued.event';
 import { InvoiceSentEvent } from './events/invoice-sent.event';
 import { DocumentNumberingService } from '../settings/services/document-numbering.service';
 import { NumberingDocumentType } from '../settings/enums/numbering-document-type.enum';
@@ -859,6 +860,12 @@ export class InvoicesService {
           InvoiceEntity.fromPrisma(original as any),
           creditNote.id,
           totalTtc,
+          creditNote.number,
+          lines.map((l) => ({
+            itemId: l.itemId,
+            description: l.description,
+            quantity: l.quantity,
+          })),
         ),
       );
 
@@ -871,6 +878,23 @@ export class InvoicesService {
         changes: { creditNoteId: creditNote.id, amountTtc: totalTtc },
       });
     }
+
+    // §4.2 — toujours publier credit_note.issued (avoirs partiels + totaux)
+    this.invoiceEventBus.publish(
+      new CreditNoteIssuedEvent(
+        InvoiceEntity.fromPrisma(creditNote as any),
+        original.id,
+        lines.map((l) => ({
+          itemId: l.itemId,
+          description: l.description,
+          quantity: l.quantity,
+          lineTotalHt: l.lineTotalHt,
+          taxAmount: l.taxAmount,
+          lineTotalTtc: l.lineTotalTtc,
+        })),
+        new Date(creditNote.issueDate),
+      ),
+    );
 
     await this.auditService.record({
       tenantId,

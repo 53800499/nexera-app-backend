@@ -7,21 +7,25 @@ import {
 import {
   Prisma,
   StockAlertLevel,
+  StockAlertStatus,
+  StockAlertType,
   StockMovementStatus,
   StockMovementType,
   StockSerialStatus,
   StockValuationMethod,
 } from '@prisma/client';
-import { PrismaService } from '../../infrastructure/database/prisma.service';
-import { DocumentNumberingService } from '../settings/services/document-numbering.service';
-import { NumberingDocumentType } from '../settings/enums/numbering-document-type.enum';
-import { CrmMessages } from '../../shared/constants/crm-messages';
+import { PrismaService } from '../../../infrastructure/database/prisma.service';
+import { DocumentNumberingService } from '../../settings/services/document-numbering.service';
+import { NumberingDocumentType } from '../../settings/enums/numbering-document-type.enum';
+import { CrmMessages } from '../../../shared/constants/crm-messages';
 import {
   CreateStockExitDto,
   CreateStockExitLineDto,
   StockExitTypeDto,
 } from './dto/create-stock-exit.dto';
-import { StockIntegrationService } from './stock-integration.service';
+import { StockIntegrationService } from '../stock-integration.service';
+import { InventoryFreezeGuard } from '../inventory/inventory-freeze.guard';
+import { toIntegrationAlertLevel } from '../events/stock.events';
 
 /** Seuil valeur perte (FCFA) — au-delà, validation responsable (RM-OUT04). */
 export const LOSS_VALUE_APPROVAL_THRESHOLD = 10_000;
@@ -69,6 +73,7 @@ export class StockExitsService {
     private readonly prisma: PrismaService,
     private readonly numberingService: DocumentNumberingService,
     private readonly stockIntegration: StockIntegrationService,
+    private readonly inventoryFreeze: InventoryFreezeGuard,
   ) {}
 
   async findExits(tenantId: string) {
@@ -152,6 +157,8 @@ export class StockExitsService {
     if (!warehouse) {
       throw new NotFoundException(CrmMessages.stock.WAREHOUSE_NOT_FOUND);
     }
+
+    await this.inventoryFreeze.assertNotFrozen(tenantId, dto.warehouseId);
 
     const allocations: AllocSlice[] = [];
     let totalLossValue = 0;
@@ -249,9 +256,11 @@ export class StockExitsService {
     }
 
     const levelUpdates: Array<{
-      commercialItemId: string;
+      itemId: string;
+      warehouseId: string;
+      newQtyAvailable: number;
+      alertLevel: ReturnType<typeof toIntegrationAlertLevel>;
       reference: string;
-      quantity: number;
     }> = [];
 
     await this.prisma.$transaction(async (tx) => {
@@ -336,13 +345,23 @@ export class StockExitsService {
         const cmupBefore = stockItem.currentCmup;
         const unitCost = line.unitCost || cmupBefore;
 
+        const newQty = level
+          ? level.qtyOnHand - qtyOut
+          : stockItem.allowNegativeStock
+            ? -qtyOut
+            : 0;
+        const qtyAvailable = level
+          ? newQty - level.qtyReserved
+          : newQty;
+        const alertLevel = level
+          ? this.computeAlertLevel(
+              Math.max(qtyAvailable, 0),
+              stockItem.minStockQty,
+              stockItem.safetyStockQty,
+            )
+          : StockAlertLevel.critical;
+
         if (level) {
-          const newQty = level.qtyOnHand - qtyOut;
-          const alertLevel = this.computeAlertLevel(
-            Math.max(newQty - level.qtyReserved, 0),
-            stockItem.minStockQty,
-            stockItem.safetyStockQty,
-          );
           await tx.stockLevel.update({
             where: { id: level.id },
             data: {
@@ -384,15 +403,21 @@ export class StockExitsService {
           },
         });
 
-        const totalOnHand = await tx.stockLevel.aggregate({
-          where: { tenantId, stockItemId: stockItem.id },
-          _sum: { qtyOnHand: true },
+        const whAgg = await tx.stockLevel.aggregate({
+          where: {
+            tenantId,
+            stockItemId: stockItem.id,
+            warehouseId: movement.warehouseId,
+          },
+          _sum: { qtyAvailable: true },
         });
 
         levelUpdates.push({
-          commercialItemId: stockItem.commercialItemId,
+          itemId: stockItem.commercialItemId,
+          warehouseId: movement.warehouseId,
+          newQtyAvailable: whAgg._sum.qtyAvailable ?? 0,
+          alertLevel: toIntegrationAlertLevel(alertLevel),
           reference: stockItem.commercialItem.reference,
-          quantity: totalOnHand._sum.qtyOnHand ?? 0,
         });
       }
 
@@ -407,11 +432,7 @@ export class StockExitsService {
     });
 
     for (const update of levelUpdates) {
-      await this.stockIntegration.publishLevelUpdated(tenantId, {
-        itemId: update.commercialItemId,
-        reference: update.reference,
-        quantity: update.quantity,
-      });
+      await this.stockIntegration.publishLevelUpdated(tenantId, update);
     }
 
     return this.prisma.stockMovement.findFirstOrThrow({
@@ -493,6 +514,14 @@ export class StockExitsService {
       this.logger.warn(
         `invoice.issued ${payload.number}: aucune quantité sortable (écarts: ${shortages.join('; ') || 'aucun article stock'})`,
       );
+      if (shortages.length > 0) {
+        await this.raiseShortageAlertsFromInvoice(
+          tenantId,
+          warehouse.id,
+          payload,
+          shortages,
+        );
+      }
       return null;
     }
 
@@ -544,6 +573,15 @@ export class StockExitsService {
       },
     });
 
+    if (shortages.length > 0) {
+      await this.raiseShortageAlertsFromInvoice(
+        tenantId,
+        warehouse.id,
+        payload,
+        shortages,
+      );
+    }
+
     try {
       return await this.validateExit(movement.id, tenantId, 'system');
     } catch (error) {
@@ -552,6 +590,77 @@ export class StockExitsService {
         error instanceof Error ? error.stack : error,
       );
       return movement;
+    }
+  }
+
+  /** §4.2 — stock insuffisant à l'émission facture : alerte + écart tracé */
+  private async raiseShortageAlertsFromInvoice(
+    tenantId: string,
+    warehouseId: string,
+    payload: {
+      invoiceId: string;
+      number: string;
+      lines: Array<{ itemId?: string | null; quantity: number }>;
+    },
+    shortages: string[],
+  ) {
+    for (const line of payload.lines) {
+      if (!line.itemId || line.quantity <= 0) continue;
+      const stockItem = await this.prisma.stockItem.findFirst({
+        where: { commercialItemId: line.itemId, tenantId },
+        include: {
+          commercialItem: { select: { reference: true } },
+        },
+      });
+      if (!stockItem) continue;
+
+      const available = await this.getAvailableQty(
+        this.prisma,
+        tenantId,
+        stockItem.id,
+        warehouseId,
+        null,
+        null,
+      );
+      if (available >= line.quantity) continue;
+
+      const fingerprint = `invoice-shortage:${payload.invoiceId}:${stockItem.id}`;
+      const existing = await this.prisma.stockAlert.findFirst({
+        where: { tenantId, fingerprint },
+      });
+      if (existing) continue;
+
+      const alert = await this.prisma.stockAlert.create({
+        data: {
+          tenantId,
+          alertType: StockAlertType.shortage,
+          status: StockAlertStatus.open,
+          severity: StockAlertLevel.critical,
+          stockItemId: stockItem.id,
+          warehouseId,
+          qtyOnHand: available,
+          thresholdQty: line.quantity,
+          daysMetric: null,
+          title: `Écart facture — ${stockItem.commercialItem.reference}`,
+          message: `Facture ${payload.number}: demandé ${line.quantity}, disponible ${available}. ${shortages.join('; ')}`,
+          suggestion: 'Réapprovisionner puis régulariser l’écart.',
+          suggestedQty: Math.max(line.quantity - available, 0),
+          fingerprint,
+        },
+      });
+
+      await this.stockIntegration.publishAlertTriggered(tenantId, {
+        itemId: stockItem.commercialItemId,
+        alertType: StockAlertType.shortage,
+        currentQty: available,
+        thresholdQty: line.quantity,
+        estimatedDaysToStockout: null,
+        alertId: alert.id,
+        stockItemId: stockItem.id,
+        reference: stockItem.commercialItem.reference,
+        severity: StockAlertLevel.critical,
+        warehouseId,
+      });
     }
   }
 

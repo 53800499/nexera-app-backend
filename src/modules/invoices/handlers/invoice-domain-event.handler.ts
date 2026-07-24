@@ -4,6 +4,7 @@ import { InvoiceCreatedEvent } from '../events/invoice-created.event';
 import { InvoiceIssuedEvent } from '../events/invoice-issued.event';
 import { InvoiceCancelledEvent } from '../events/invoice-cancelled.event';
 import { InvoiceSentEvent } from '../events/invoice-sent.event';
+import { CreditNoteIssuedEvent } from '../events/credit-note-issued.event';
 
 @Injectable()
 export class InvoiceDomainEventHandler {
@@ -43,7 +44,30 @@ export class InvoiceDomainEventHandler {
       payload: {
         originalInvoiceId: event.originalInvoice.id,
         creditNoteId: event.creditNoteId,
+        creditNoteNumber: event.creditNoteNumber,
         amount: event.creditNoteAmount,
+        lines: event.lines,
+      },
+    });
+  }
+
+  onCreditNoteIssued(event: CreditNoteIssuedEvent) {
+    console.log(
+      '[invoices] credit_note.issued',
+      event.creditNote.id,
+      'original:',
+      event.originalInvoiceId,
+    );
+    void this.integrationBus.publish({
+      eventName: event.eventName,
+      tenantId: event.creditNote.tenantId,
+      occurredAt: event.issueDate,
+      payload: {
+        creditNoteId: event.creditNote.id,
+        creditNoteNumber: event.creditNote.number,
+        originalInvoiceId: event.originalInvoiceId,
+        lines: event.lines,
+        issueDate: event.issueDate,
       },
     });
   }

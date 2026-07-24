@@ -37,6 +37,15 @@ export class CreateStockItemDto {
   trackExpiry?: boolean;
 
   @ApiPropertyOptional({
+    default: 30,
+    description: 'Seuil alerte péremption en jours (§3.3)',
+  })
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  expiryAlertDays?: number;
+
+  @ApiPropertyOptional({
     enum: StockValuationMethodDto,
     default: StockValuationMethodDto.cmup,
   })

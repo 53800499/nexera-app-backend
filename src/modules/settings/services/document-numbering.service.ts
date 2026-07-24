@@ -224,6 +224,22 @@ export class DocumentNumberingService {
             select: { number: true },
           })
         )?.number ?? null;
+      case NumberingDocumentType.STOCK_INVENTORY:
+        return (
+          await db.inventorySession.findFirst({
+            where: { tenantId, number: { startsWith: prefix } },
+            orderBy: { number: 'desc' },
+            select: { number: true },
+          })
+        )?.number ?? null;
+      case NumberingDocumentType.PURCHASE_REQUEST:
+        return (
+          await db.replenishmentProposal.findFirst({
+            where: { tenantId, number: { startsWith: prefix } },
+            orderBy: { number: 'desc' },
+            select: { number: true },
+          })
+        )?.number ?? null;
       default:
         return null;
     }
@@ -270,6 +286,16 @@ export class DocumentNumberingService {
         }));
       case NumberingDocumentType.STOCK_TRANSFER:
         return !!(await db.stockTransfer.findFirst({
+          where: { number },
+          select: { id: true },
+        }));
+      case NumberingDocumentType.STOCK_INVENTORY:
+        return !!(await db.inventorySession.findFirst({
+          where: { number },
+          select: { id: true },
+        }));
+      case NumberingDocumentType.PURCHASE_REQUEST:
+        return !!(await db.replenishmentProposal.findFirst({
           where: { number },
           select: { id: true },
         }));

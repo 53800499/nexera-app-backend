@@ -8,6 +8,18 @@ import {
   StockItemArchivedPayload,
   StockLevelUpdatedPayload,
 } from './events/stock.events';
+import {
+  STOCK_INVENTORY_CLOSED,
+  StockInventoryClosedPayload,
+} from './inventory/events/inventory.events';
+import {
+  STOCK_ALERT_TRIGGERED,
+  StockAlertTriggeredPayload,
+} from './alerts/events/alerts.events';
+import {
+  STOCK_VALUATION_UPDATED,
+  StockValuationUpdatedPayload,
+} from './valuation/events/valuation.events';
 
 @Injectable()
 export class StockIntegrationService {
@@ -19,6 +31,21 @@ export class StockIntegrationService {
   ) {
     await this.integrationBus.publish({
       eventName: STOCK_LEVEL_UPDATED,
+      tenantId,
+      occurredAt: new Date(),
+      payload: {
+        ...payload,
+        quantity: payload.newQtyAvailable,
+      },
+    });
+  }
+
+  async publishAlertTriggered(
+    tenantId: string,
+    payload: StockAlertTriggeredPayload,
+  ) {
+    await this.integrationBus.publish({
+      eventName: STOCK_ALERT_TRIGGERED,
       tenantId,
       occurredAt: new Date(),
       payload,
@@ -43,6 +70,30 @@ export class StockIntegrationService {
   ) {
     await this.integrationBus.publish({
       eventName: STOCK_ENTRY_CREATED,
+      tenantId,
+      occurredAt: new Date(),
+      payload,
+    });
+  }
+
+  async publishInventoryClosed(
+    tenantId: string,
+    payload: StockInventoryClosedPayload,
+  ) {
+    await this.integrationBus.publish({
+      eventName: STOCK_INVENTORY_CLOSED,
+      tenantId,
+      occurredAt: new Date(),
+      payload,
+    });
+  }
+
+  async publishValuationUpdated(
+    tenantId: string,
+    payload: StockValuationUpdatedPayload,
+  ) {
+    await this.integrationBus.publish({
+      eventName: STOCK_VALUATION_UPDATED,
       tenantId,
       occurredAt: new Date(),
       payload,
