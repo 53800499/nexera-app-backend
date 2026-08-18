@@ -69,6 +69,22 @@ const CABINET_PERMISSIONS = [
   },
 ];
 
+const RH_PERMISSIONS = [
+  { code: 'rh.read', description: 'Consulter le module RH & Paie' },
+  { code: 'rh.write', description: 'Gérer les données RH & Paie' },
+  { code: 'manage:rh', description: 'Gérer le module RH (API guard)' },
+  { code: 'rh.employees.read', description: 'Consulter le dossier des salariés' },
+  { code: 'rh.employees.manage', description: 'Créer et modifier les salariés' },
+  { code: 'rh.contracts.manage', description: 'Gérer les contrats et avenants' },
+  { code: 'rh.leaves.request', description: 'Déposer une demande de congé' },
+  { code: 'rh.leaves.validate', description: 'Valider les demandes de congé' },
+  { code: 'rh.timesheets.manage', description: 'Saisir et valider les relevés d’heures' },
+  { code: 'rh.payroll.calculate', description: 'Calculer les bulletins de paie' },
+  { code: 'rh.payroll.validate', description: 'Valider et clôturer les cycles de paie' },
+  { code: 'rh.declarations.manage', description: 'Gérer les déclarations fiscales et sociales' },
+  { code: 'rh.accounting.export', description: 'Générer et exporter les OD de paie' },
+];
+
 const ALL_NEW_PERMISSIONS = [
   ...QUOTATION_PERMISSIONS,
   ...ORDER_PERMISSIONS,
@@ -81,9 +97,31 @@ const ALL_NEW_PERMISSIONS = [
   ...STOCK_PERMISSIONS,
   ...API_ALIAS_PERMISSIONS,
   ...CABINET_PERMISSIONS,
+  ...RH_PERMISSIONS,
 ];
 
+import { seedRhData } from './seed-rh';
+
 const ADMIN_ROLE_CODES = ['ADMIN', 'CEO', 'CABINET_ADMIN'];
+
+const RH_MANAGER_PERMISSION_CODES = [
+  'dashboard.read',
+  'settings.read',
+  'sync.read',
+  'rh.read',
+  'rh.write',
+  'manage:rh',
+  'rh.employees.read',
+  'rh.employees.manage',
+  'rh.contracts.manage',
+  'rh.leaves.request',
+  'rh.leaves.validate',
+  'rh.timesheets.manage',
+  'rh.payroll.calculate',
+  'rh.payroll.validate',
+  'rh.declarations.manage',
+  'rh.accounting.export',
+];
 
 async function main() {
   const connectionString = process.env.DATABASE_URL;
@@ -95,6 +133,7 @@ async function main() {
     adapter: new PrismaPg({ connectionString }),
   });
 
+  // 1. Upsert all platform permissions
   for (const permission of ALL_NEW_PERMISSIONS) {
     await prisma.permission.upsert({
       where: { code: permission.code },
@@ -107,11 +146,38 @@ async function main() {
     where: { code: { in: ALL_NEW_PERMISSIONS.map((p) => p.code) } },
   });
 
-  const roles = await prisma.role.findMany({
+  // 2. Ensure RH_MANAGER role exists for all company tenants
+  const companyTenants = await prisma.tenant.findMany({
+    where: { type: 'company' },
+  });
+
+  for (const tenant of companyTenants) {
+    await prisma.role.upsert({
+      where: {
+        tenantId_code: {
+          tenantId: tenant.id,
+          code: 'RH_MANAGER',
+        },
+      },
+      create: {
+        tenantId: tenant.id,
+        code: 'RH_MANAGER',
+        name: 'Responsable RH & Paie',
+        description: 'Gestion complète des salariés, contrats, congés et paie',
+      },
+      update: {
+        name: 'Responsable RH & Paie',
+        description: 'Gestion complète des salariés, contrats, congés et paie',
+      },
+    });
+  }
+
+  // 3. Grant all permissions to ADMIN, CEO, CABINET_ADMIN roles across all tenants
+  const adminRoles = await prisma.role.findMany({
     where: { code: { in: ADMIN_ROLE_CODES } },
   });
 
-  for (const role of roles) {
+  for (const role of adminRoles) {
     await prisma.rolePermission.createMany({
       data: permissions.map((permission) => ({
         roleId: role.id,
@@ -121,9 +187,37 @@ async function main() {
     });
   }
 
+  // 4. Grant RH permissions to RH_MANAGER roles across all tenants
+  const rhPermissions = await prisma.permission.findMany({
+    where: { code: { in: RH_MANAGER_PERMISSION_CODES } },
+  });
+
+  const rhRoles = await prisma.role.findMany({
+    where: { code: 'RH_MANAGER' },
+  });
+
+  for (const role of rhRoles) {
+    await prisma.rolePermission.createMany({
+      data: rhPermissions.map((permission) => ({
+        roleId: role.id,
+        permissionId: permission.id,
+      })),
+      skipDuplicates: true,
+    });
+  }
+
   console.log(
-    `Seeded ${permissions.length} permission(s) for ${roles.length} role(s).`,
+    `✅ Seeded ${permissions.length} permission(s).`,
   );
+  console.log(
+    `✅ Updated ${adminRoles.length} admin/CEO role(s) with all permissions.`,
+  );
+  console.log(
+    `✅ Updated ${rhRoles.length} RH_MANAGER role(s) with RH permissions across ${companyTenants.length} company tenant(s).`,
+  );
+
+  // 5. Seed RH & Paie standard reference tables (rubriques, barèmes, etc.)
+  await seedRhData(prisma);
 
   await prisma.$disconnect();
 }

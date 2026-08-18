@@ -46,6 +46,14 @@ export function setupSwagger(app: INestApplication) {
       'cabinet',
       'Espace Cabinet ↔ Entreprise — liaison multi-dossiers : autorisation (`POST /cabinet/access`), révocation (`DELETE /cabinet/access`), liste cabinets (`GET /cabinet/access`), dossiers cabinet (`GET /cabinet/companies`), factures par dossier (`GET /cabinet/companies/:companyTenantId/invoices`). Voir descriptions détaillées sur chaque endpoint.',
     )
+    .addTag('rh-dashboard', 'Module RH — Métriques clés, masse salariale, alertes contrats et congés')
+    .addTag('rh-referentiel', 'Module RH — Données légales et fiscales (CGI Bénin 2026, barèmes ITS Art. 125/126, cotisations CNSS, VPS, jours fériés)')
+    .addTag('rh-organisation', 'Module RH — Établissements, Départements, Postes et Grilles de classification')
+    .addTag('rh-employes', 'Module RH — Salariés, Dossier 360°, cycle de vie (embauche, suspension, sortie)')
+    .addTag('rh-contrats', 'Module RH — Contrats de travail (CDI, CDD, Stage), Avenants, Périodes d’essai, Ruptures et Simulateur CCGT')
+    .addTag('rh-temps-absences', 'Module RH — Relevés d’heures, Heures supplémentaires, Demandes d’absences et Soldes de congés')
+    .addTag('rh-paie', 'Module RH — Cycles de paie, Moteur de calcul 1-clic, Éléments variables, Bulletins OHADA et Solde de tout compte')
+    .addTag('rh-interfaces', 'Module RH — Écritures comptables OD SYSCOHADA et Déclarations fiscales & sociales (M7, DGI, CNSS)')
     .build();
 
   const document = SwaggerModule.createDocument(app, config);

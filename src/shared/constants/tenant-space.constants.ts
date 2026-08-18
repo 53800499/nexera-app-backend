@@ -54,6 +54,22 @@ const COMPANY_CRM_PERMISSIONS: PermissionDefinition[] = [
   { code: 'manage:tenants', description: 'Manage tenants (API guard)' },
 ];
 
+export const RH_PERMISSIONS: PermissionDefinition[] = [
+  { code: 'rh.read', description: 'Consulter le module RH & Paie' },
+  { code: 'rh.write', description: 'Gérer les données RH & Paie' },
+  { code: 'manage:rh', description: 'Gérer le module RH (API guard)' },
+  { code: 'rh.employees.read', description: 'Consulter le dossier des salariés' },
+  { code: 'rh.employees.manage', description: 'Créer et modifier les salariés' },
+  { code: 'rh.contracts.manage', description: 'Gérer les contrats et avenants' },
+  { code: 'rh.leaves.request', description: 'Déposer une demande de congé' },
+  { code: 'rh.leaves.validate', description: 'Valider les demandes de congé' },
+  { code: 'rh.timesheets.manage', description: 'Saisir et valider les relevés d’heures' },
+  { code: 'rh.payroll.calculate', description: 'Calculer les bulletins de paie' },
+  { code: 'rh.payroll.validate', description: 'Valider et clôturer les cycles de paie' },
+  { code: 'rh.declarations.manage', description: 'Gérer les déclarations fiscales et sociales' },
+  { code: 'rh.accounting.export', description: 'Générer et exporter les OD de paie' },
+];
+
 const CABINET_SPACE_PERMISSIONS: PermissionDefinition[] = [
   {
     code: 'cabinet.read',
@@ -64,6 +80,11 @@ const CABINET_SPACE_PERMISSIONS: PermissionDefinition[] = [
 export const COMPANY_ROLES: RoleDefinition[] = [
   { code: 'ADMIN', name: 'Admin', description: 'Administrateur entreprise' },
   { code: 'CEO', name: 'CEO', description: 'Dirigeant / fondateur' },
+  {
+    code: 'RH_MANAGER',
+    name: 'Responsable RH & Paie',
+    description: 'Gestion complète des salariés, contrats, congés et paie',
+  },
 ];
 
 export const CABINET_ROLES: RoleDefinition[] = [
@@ -85,6 +106,25 @@ const COLLABORATOR_PERMISSION_CODES = [
   'settings.read',
 ];
 
+const RH_MANAGER_PERMISSION_CODES = [
+  'dashboard.read',
+  'settings.read',
+  'sync.read',
+  'rh.read',
+  'rh.write',
+  'manage:rh',
+  'rh.employees.read',
+  'rh.employees.manage',
+  'rh.contracts.manage',
+  'rh.leaves.request',
+  'rh.leaves.validate',
+  'rh.timesheets.manage',
+  'rh.payroll.calculate',
+  'rh.payroll.validate',
+  'rh.declarations.manage',
+  'rh.accounting.export',
+];
+
 export function getPermissionsForTenantType(
   type: TenantType,
 ): PermissionDefinition[] {
@@ -92,7 +132,7 @@ export function getPermissionsForTenantType(
   if (type === TenantType.cabinet) {
     return [...shared, ...CABINET_SPACE_PERMISSIONS];
   }
-  return [...shared, ...COMPANY_CRM_PERMISSIONS];
+  return [...shared, ...COMPANY_CRM_PERMISSIONS, ...RH_PERMISSIONS];
 }
 
 export function getRolesForTenantType(type: TenantType): RoleDefinition[] {
@@ -106,6 +146,9 @@ export function getPermissionCodesForRole(
   if (roleCode === 'COLLABORATOR') {
     return COLLABORATOR_PERMISSION_CODES;
   }
+  if (roleCode === 'RH_MANAGER') {
+    return RH_MANAGER_PERMISSION_CODES;
+  }
 
   return getPermissionsForTenantType(tenantType).map((p) => p.code);
 }
@@ -115,6 +158,7 @@ export function getAllPlatformPermissions(): PermissionDefinition[] {
   for (const p of [
     ...SHARED_ADMIN_PERMISSIONS,
     ...COMPANY_CRM_PERMISSIONS,
+    ...RH_PERMISSIONS,
     ...CABINET_SPACE_PERMISSIONS,
   ]) {
     byCode.set(p.code, p);

@@ -110,6 +110,11 @@ export class CreateTaxRateDto {
   @IsBoolean()
   @IsOptional()
   isDefault?: boolean;
+
+  @ApiPropertyOptional({ default: true })
+  @IsBoolean()
+  @IsOptional()
+  isActive?: boolean;
 }
 
 export class UpdateTaxRateDto {
@@ -154,6 +159,11 @@ export class CreatePaymentTermDto {
   @IsBoolean()
   @IsOptional()
   isDefault?: boolean;
+
+  @ApiPropertyOptional({ default: true })
+  @IsBoolean()
+  @IsOptional()
+  isActive?: boolean;
 }
 
 export class UpdatePaymentTermDto {
@@ -198,6 +208,11 @@ export class CreateTenantCurrencyDto {
   @Min(0.0001)
   @IsOptional()
   manualRate?: number;
+
+  @ApiPropertyOptional({ default: true })
+  @IsBoolean()
+  @IsOptional()
+  isActive?: boolean;
 }
 
 export class UpdateTenantCurrencyDto {

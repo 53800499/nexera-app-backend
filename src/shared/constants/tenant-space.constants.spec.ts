@@ -18,14 +18,17 @@ describe('tenant-space.constants', () => {
     expect(company).toContain('invoices.read');
     expect(company).toContain('stock.read');
     expect(company).toContain('manage:stock');
+    expect(company).toContain('rh.read');
+    expect(company).toContain('manage:rh');
     expect(cabinet).not.toContain('clients.read');
     expect(cabinet).not.toContain('stock.read');
+    expect(cabinet).not.toContain('rh.read');
     expect(cabinet).toContain('cabinet.read');
   });
 
   it('defines distinct default roles per space', () => {
     expect(getRolesForTenantType(TenantType.company).map((r) => r.code)).toEqual(
-      ['ADMIN', 'CEO'],
+      ['ADMIN', 'CEO', 'RH_MANAGER'],
     );
     expect(getRolesForTenantType(TenantType.cabinet).map((r) => r.code)).toEqual(
       ['CABINET_ADMIN', 'COLLABORATOR'],
@@ -38,5 +41,16 @@ describe('tenant-space.constants', () => {
       TenantType.cabinet,
     );
     expect(codes).toEqual(['cabinet.read', 'sync.read', 'settings.read']);
+  });
+
+  it('assigns RH permissions to RH_MANAGER role', () => {
+    const codes = getPermissionCodesForRole(
+      'RH_MANAGER',
+      TenantType.company,
+    );
+    expect(codes).toContain('rh.read');
+    expect(codes).toContain('manage:rh');
+    expect(codes).toContain('rh.payroll.calculate');
+    expect(codes).not.toContain('invoices.write');
   });
 });

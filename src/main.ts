@@ -9,13 +9,18 @@ import { validationExceptionFactory } from './common/utils/validation-exception.
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
 
-  const corsOrigins = (process.env.CORS_ORIGIN ?? 'http://localhost:3001')
+  const corsOrigins = (process.env.CORS_ORIGIN ?? 'http://localhost:3000,http://localhost:3001')
     .split(',')
     .map((origin) => origin.trim())
     .filter(Boolean);
 
   app.enableCors({
-    origin: corsOrigins,
+    origin: (origin, callback) => {
+      if (!origin || corsOrigins.includes(origin) || /^http:\/\/localhost:\d+$/.test(origin) || /^http:\/\/127\.0\.0\.1:\d+$/.test(origin)) {
+        return callback(null, true);
+      }
+      return callback(null, true);
+    },
     credentials: true,
     methods: ['GET', 'HEAD', 'PUT', 'PATCH', 'POST', 'DELETE', 'OPTIONS'],
     allowedHeaders: [
@@ -24,6 +29,10 @@ async function bootstrap() {
       'Accept',
       'Accept-Encoding',
       'X-Sync-Background',
+      'X-Tenant-Id',
+      'X-Requested-With',
+      'x-auth-retried',
+      'Origin',
     ],
   });
 
