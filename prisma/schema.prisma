@@ -157,6 +157,7 @@ model User {
 
   roles UserRole[]
   passwordResetTokens PasswordResetToken[]
+  employe RhEmploye?
 
   @@map("users")
 }
@@ -2242,11 +2243,13 @@ model RhEmploye {
   dateAnciennete        DateTime                       @map("date_anciennete")
   dateSortieDefinitive  DateTime?                      @map("date_sortie_definitive")
   isDeleted             Boolean                        @default(false) @map("is_deleted")
+  utilisateurId         String?                        @unique @map("utilisateur_id")
   createdAt             DateTime                       @default(now()) @map("created_at")
   createdBy             String?                        @map("created_by")
   updatedAt             DateTime                       @updatedAt @map("updated_at")
   updatedBy             String?                        @map("updated_by")
 
+  utilisateur           User?                          @relation(fields: [utilisateurId], references: [id], onDelete: SetNull)
   documents             RhEmployeDocument[]
   personnesACharge      RhEmployePersonneACharge[]
   affectations          RhEmployeAffectation[]

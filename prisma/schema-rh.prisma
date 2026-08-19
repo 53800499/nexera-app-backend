@@ -630,6 +630,7 @@ model RhEmploye {
   dateAnciennete        DateTime                       @map("date_anciennete")
   dateSortieDefinitive  DateTime?                      @map("date_sortie_definitive")
   isDeleted             Boolean                        @default(false) @map("is_deleted")
+  utilisateurId         String?                        @unique @map("utilisateur_id")
   createdAt             DateTime                       @default(now()) @map("created_at")
   createdBy             String?                        @map("created_by")
   updatedAt             DateTime                       @updatedAt @map("updated_at")

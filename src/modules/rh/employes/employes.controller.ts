@@ -28,6 +28,8 @@ import {
   CreateEmployeDocumentDto,
   CreateEmployeDto,
   CreatePersonneAChargeDto,
+  CreerCompteUtilisateurDto,
+  LierCompteUtilisateurDto,
   UpdateEmployeDto,
 } from './dto/employe.dto';
 import { parsePagination } from '../../../shared/utils/pagination.util';
@@ -85,6 +87,21 @@ export class EmployesController {
       etablissementId,
       departementId,
     );
+  }
+
+  /**
+   * Consulter son propre espace collaborateur (Self-Service RH)
+   */
+  @Get('me/espace-collaborateur')
+  @ApiOperation({
+    summary: 'Mon Espace Collaborateur (Self-Service RH)',
+    description: 'Retourne les bulletins de paie, solde de congés, historique d’absences et affectation du collaborateur connecté.',
+  })
+  @ApiResponse({ status: 200, description: 'Données personnelles collaborateur' })
+  getMonEspaceCollaborateur(
+    @Request() req: { user: { sub: string; tenantId: string } },
+  ) {
+    return this.employesService.getEspaceCollaborateur(req.user.sub, req.user.tenantId);
   }
 
   /**
@@ -266,5 +283,65 @@ export class EmployesController {
     @Request() req: { user: { tenantId: string } },
   ) {
     return this.employesService.addDocument(id, dto, req.user.tenantId);
+  }
+
+  // =========================================================================
+  // GESTION DU COMPTE D'ACCÈS ERP (IAM)
+  // =========================================================================
+
+  /**
+   * Générer un compte utilisateur ERP en 1 clic pour ce salarié
+   */
+  @Post(':id/creer-compte-utilisateur')
+  @Permissions('manage:rh')
+  @ApiOperation({
+    summary: 'Créer un compte d’accès ERP pour le salarié',
+    description: 'Crée un utilisateur avec les rôles sélectionnés et lie directement le compte à sa fiche collaborateur.',
+  })
+  @ApiParam({ name: 'id', description: 'Identifiant UUID du salarié' })
+  @ApiResponse({ status: 201, description: 'Compte ERP créé et associé' })
+  creerCompteUtilisateur(
+    @Param('id') id: string,
+    @Body() dto: CreerCompteUtilisateurDto,
+    @Request() req: { user: { sub: string; tenantId: string } },
+  ) {
+    return this.employesService.creerCompteUtilisateur(id, dto, req.user.tenantId, req.user.sub);
+  }
+
+  /**
+   * Lier un compte utilisateur ERP existant au salarié
+   */
+  @Patch(':id/lier-utilisateur')
+  @Permissions('manage:rh')
+  @ApiOperation({
+    summary: 'Associer un compte utilisateur existant',
+    description: 'Relie un compte utilisateur déjà présent dans le système à cette fiche salarié.',
+  })
+  @ApiParam({ name: 'id', description: 'Identifiant UUID du salarié' })
+  @ApiResponse({ status: 200, description: 'Compte associé avec succès' })
+  lierUtilisateur(
+    @Param('id') id: string,
+    @Body() dto: LierCompteUtilisateurDto,
+    @Request() req: { user: { sub: string; tenantId: string } },
+  ) {
+    return this.employesService.lierUtilisateur(id, dto, req.user.tenantId, req.user.sub);
+  }
+
+  /**
+   * Détacher le compte utilisateur ERP de la fiche salarié
+   */
+  @Delete(':id/delier-utilisateur')
+  @Permissions('manage:rh')
+  @ApiOperation({
+    summary: 'Dissocier le compte utilisateur ERP',
+    description: 'Déleste la fiche salarié du compte utilisateur sans supprimer le compte ni la fiche.',
+  })
+  @ApiParam({ name: 'id', description: 'Identifiant UUID du salarié' })
+  @ApiResponse({ status: 200, description: 'Compte dissocié avec succès' })
+  delierUtilisateur(
+    @Param('id') id: string,
+    @Request() req: { user: { sub: string; tenantId: string } },
+  ) {
+    return this.employesService.delierUtilisateur(id, req.user.tenantId, req.user.sub);
   }
 }

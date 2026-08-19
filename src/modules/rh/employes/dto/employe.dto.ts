@@ -1,5 +1,7 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
+  IsArray,
+  IsBoolean,
   IsDateString,
   IsEmail,
   IsEnum,
@@ -316,6 +318,11 @@ export class UpdateEmployeDto {
   posteId?: string;
 
   @ApiPropertyOptional()
+  @IsUUID()
+  @IsOptional()
+  utilisateurId?: string;
+
+  @ApiPropertyOptional()
   @IsDateString()
   @IsOptional()
   dateSortieDefinitive?: string;
@@ -460,4 +467,33 @@ export class CreateEmployeDocumentDto {
   @IsDateString()
   @IsOptional()
   dateExpiration?: string;
+}
+
+export class CreerCompteUtilisateurDto {
+  @ApiPropertyOptional({ example: 'eric.mensah@nexera.bj', description: 'Si non renseigné, utilise l’email professionnel du collaborateur' })
+  @IsEmail()
+  @IsOptional()
+  email?: string;
+
+  @ApiPropertyOptional({ example: ['uuid-du-role-commercial'], description: 'Liste des IDs de rôles ERP à attribuer' })
+  @IsArray()
+  @IsOptional()
+  roleIds?: string[];
+
+  @ApiPropertyOptional({ example: 'Password123!', description: 'Mot de passe initial (généré aléatoirement si omis)' })
+  @IsString()
+  @IsOptional()
+  password?: string;
+
+  @ApiPropertyOptional({ default: true, description: 'Envoyer un email d’invitation au collaborateur' })
+  @IsBoolean()
+  @IsOptional()
+  envoyerInvitation?: boolean;
+}
+
+export class LierCompteUtilisateurDto {
+  @ApiProperty({ example: 'uuid-de-l-utilisateur-existant', description: 'Identifiant UUID du compte utilisateur à lier' })
+  @IsUUID()
+  @IsNotEmpty()
+  utilisateurId: string;
 }

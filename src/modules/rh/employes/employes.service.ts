@@ -1,4 +1,10 @@
-import { Injectable, NotFoundException, ConflictException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
+import * as bcrypt from 'bcrypt';
 import { PrismaService } from '../../../infrastructure/database/prisma.service';
 import { RhAuditService } from '../audit/rh-audit.service';
 import {
@@ -7,6 +13,8 @@ import {
   CreateEmployeDocumentDto,
   CreateEmployeDto,
   CreatePersonneAChargeDto,
+  CreerCompteUtilisateurDto,
+  LierCompteUtilisateurDto,
   UpdateEmployeDto,
 } from './dto/employe.dto';
 
@@ -91,6 +99,15 @@ export class EmployesService {
             where: { estComptePrincipal: true, actif: true },
             take: 1,
           },
+          utilisateur: {
+            select: {
+              id: true,
+              email: true,
+              firstName: true,
+              lastName: true,
+              isActive: true,
+            },
+          },
         },
         orderBy: [{ nom: 'asc' }, { prenoms: 'asc' }],
         skip,
@@ -106,6 +123,11 @@ export class EmployesService {
         limit,
         totalPages: Math.ceil(total / limit),
       },
+      items,
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit),
     };
   }
 
@@ -155,6 +177,27 @@ export class EmployesService {
         historiquesSalaire: {
           orderBy: { dateEffet: 'desc' },
           take: 10,
+        },
+        utilisateur: {
+          select: {
+            id: true,
+            email: true,
+            firstName: true,
+            lastName: true,
+            isActive: true,
+            roles: {
+              include: {
+                role: {
+                  select: {
+                    id: true,
+                    name: true,
+                    code: true,
+                    description: true,
+                  },
+                },
+              },
+            },
+          },
         },
       },
     });
@@ -511,5 +554,347 @@ export class EmployesService {
         statutVerification: 'VERIFIE',
       },
     });
+  }
+
+  // --- GESTION DU COMPTE UTILISATEUR ERP LIÉ ---
+
+  async creerCompteUtilisateur(
+    employeId: string,
+    dto: CreerCompteUtilisateurDto,
+    tenantId: string,
+    currentUserId?: string,
+  ) {
+    const employe = await this.prisma.rhEmploye.findFirst({
+      where: { id: employeId, tenantId, isDeleted: false },
+      include: { utilisateur: true },
+    });
+
+    if (!employe) {
+      throw new NotFoundException(`Employé ${employeId} introuvable`);
+    }
+
+    if (employe.utilisateurId) {
+      throw new BadRequestException(
+        `Ce salarié possède déjà un compte utilisateur lié (${employe.utilisateur?.email || employe.utilisateurId}).`,
+      );
+    }
+
+    const email = (
+      dto.email ||
+      employe.emailProfessionnel ||
+      employe.emailPersonnel ||
+      ''
+    )
+      .trim()
+      .toLowerCase();
+
+    if (!email) {
+      throw new BadRequestException(
+        "Veuillez renseigner une adresse email valide pour ce compte d'accès.",
+      );
+    }
+
+    // Vérifier si un compte existe déjà avec cette adresse email
+    const existingUser = await this.prisma.user.findUnique({
+      where: { email },
+      include: { employe: true },
+    });
+
+    const plainPassword =
+      dto.password?.trim() ||
+      Math.random().toString(36).slice(-6) + 'Aa1!';
+
+    let targetUserId: string;
+    let targetUserEmail: string;
+
+    if (existingUser) {
+      if (existingUser.tenantId !== tenantId) {
+        throw new ConflictException(
+          'Cette adresse email est déjà enregistrée sur une autre organisation.',
+        );
+      }
+      if (existingUser.employe && existingUser.employe.id !== employeId) {
+        throw new ConflictException(
+          `Cet utilisateur est déjà associé au collaborateur ${existingUser.employe.prenoms} ${existingUser.employe.nom} (${existingUser.employe.matricule}).`,
+        );
+      }
+      targetUserId = existingUser.id;
+      targetUserEmail = existingUser.email;
+    } else {
+      const hashedPassword = await bcrypt.hash(plainPassword, 10);
+      const newUser = await this.prisma.user.create({
+        data: {
+          email,
+          password: hashedPassword,
+          firstName: employe.prenoms,
+          lastName: employe.nom,
+          tenantId,
+          isActive: true,
+        },
+      });
+      targetUserId = newUser.id;
+      targetUserEmail = newUser.email;
+    }
+
+    // Assigner les rôles demandés si spécifiés
+    if (dto.roleIds?.length) {
+      for (const roleId of dto.roleIds) {
+        const role = await this.prisma.role.findFirst({
+          where: { id: roleId, tenantId },
+        });
+        if (role) {
+          await this.prisma.userRole.upsert({
+            where: {
+              userId_roleId: { userId: targetUserId, roleId: role.id },
+            },
+            create: { userId: targetUserId, roleId: role.id },
+            update: {},
+          });
+        }
+      }
+    }
+
+    // Lier le salarié à l'utilisateur
+    const updatedEmploye = await this.prisma.rhEmploye.update({
+      where: { id: employeId },
+      data: {
+        utilisateurId: targetUserId,
+        emailProfessionnel: employe.emailProfessionnel || email,
+        updatedBy: currentUserId,
+      },
+      include: {
+        utilisateur: {
+          select: {
+            id: true,
+            email: true,
+            firstName: true,
+            lastName: true,
+            isActive: true,
+            roles: { include: { role: true } },
+          },
+        },
+      },
+    });
+
+    await this.auditService.log({
+      tenantId,
+      utilisateurId: currentUserId,
+      entiteNom: 'rh_employe',
+      entiteId: employeId,
+      actionAudit: 'MODIFICATION',
+      champsModifiesJson: {
+        action: 'CREATION_COMPTE_ERP',
+        utilisateurId: targetUserId,
+        email: targetUserEmail,
+      },
+    });
+
+    return {
+      success: true,
+      message: `Compte d'accès ERP créé et lié au collaborateur avec succès.`,
+      user: {
+        id: targetUserId,
+        email: targetUserEmail,
+        initialPassword: plainPassword,
+      },
+      employe: updatedEmploye,
+    };
+  }
+
+  async lierUtilisateur(
+    employeId: string,
+    dto: LierCompteUtilisateurDto,
+    tenantId: string,
+    currentUserId?: string,
+  ) {
+    const employe = await this.prisma.rhEmploye.findFirst({
+      where: { id: employeId, tenantId, isDeleted: false },
+    });
+    if (!employe) {
+      throw new NotFoundException(`Employé ${employeId} introuvable`);
+    }
+
+    const user = await this.prisma.user.findFirst({
+      where: { id: dto.utilisateurId, tenantId },
+      include: { employe: true },
+    });
+    if (!user) {
+      throw new NotFoundException(`Utilisateur ${dto.utilisateurId} introuvable`);
+    }
+
+    if (user.employe && user.employe.id !== employeId) {
+      throw new ConflictException(
+        `Cet utilisateur est déjà associé au collaborateur ${user.employe.prenoms} ${user.employe.nom}.`,
+      );
+    }
+
+    const updated = await this.prisma.rhEmploye.update({
+      where: { id: employeId },
+      data: {
+        utilisateurId: dto.utilisateurId,
+        updatedBy: currentUserId,
+      },
+      include: {
+        utilisateur: {
+          select: {
+            id: true,
+            email: true,
+            firstName: true,
+            lastName: true,
+            isActive: true,
+            roles: { include: { role: true } },
+          },
+        },
+      },
+    });
+
+    await this.auditService.log({
+      tenantId,
+      utilisateurId: currentUserId,
+      entiteNom: 'rh_employe',
+      entiteId: employeId,
+      actionAudit: 'MODIFICATION',
+      champsModifiesJson: {
+        action: 'LIAISON_COMPTE_ERP',
+        utilisateurId: dto.utilisateurId,
+      },
+    });
+
+    return {
+      success: true,
+      message: `Compte utilisateur lié avec succès.`,
+      employe: updated,
+    };
+  }
+
+  async delierUtilisateur(
+    employeId: string,
+    tenantId: string,
+    currentUserId?: string,
+  ) {
+    const employe = await this.prisma.rhEmploye.findFirst({
+      where: { id: employeId, tenantId, isDeleted: false },
+    });
+    if (!employe) {
+      throw new NotFoundException(`Employé ${employeId} introuvable`);
+    }
+
+    const updated = await this.prisma.rhEmploye.update({
+      where: { id: employeId },
+      data: {
+        utilisateurId: null,
+        updatedBy: currentUserId,
+      },
+    });
+
+    await this.auditService.log({
+      tenantId,
+      utilisateurId: currentUserId,
+      entiteNom: 'rh_employe',
+      entiteId: employeId,
+      actionAudit: 'MODIFICATION',
+      champsModifiesJson: {
+        action: 'DELIAISON_COMPTE_ERP',
+      },
+    });
+
+    return {
+      success: true,
+      message: `Le compte utilisateur a été dissocié de la fiche collaborateur.`,
+      employe: updated,
+    };
+  }
+
+  async getEspaceCollaborateur(userId: string, tenantId: string) {
+    let employe = await this.prisma.rhEmploye.findFirst({
+      where: { utilisateurId: userId, tenantId, isDeleted: false },
+      include: {
+        affectations: {
+          where: { estActuelle: true },
+          include: { etablissement: true, departement: true, poste: true },
+          take: 1,
+        },
+        contrats: {
+          where: { statut: 'ACTIF' },
+          include: { categorieProfessionnelle: true, conventionCollective: true },
+          take: 1,
+        },
+        soldesConges: {
+          orderBy: { anneeReference: 'desc' },
+          take: 1,
+        },
+        bulletinsPaie: {
+          include: { cyclePaie: true },
+          orderBy: { dateDebutPeriode: 'desc' },
+          take: 24,
+        },
+        absences: {
+          orderBy: { dateDebut: 'desc' },
+          take: 10,
+        },
+      },
+    });
+
+    // Fallback : recherche par email de l'utilisateur
+    if (!employe) {
+      const user = await this.prisma.user.findUnique({ where: { id: userId } });
+      if (user?.email) {
+        employe = await this.prisma.rhEmploye.findFirst({
+          where: {
+            tenantId,
+            isDeleted: false,
+            OR: [
+              { emailProfessionnel: { equals: user.email, mode: 'insensitive' } },
+              { emailPersonnel: { equals: user.email, mode: 'insensitive' } },
+            ],
+          },
+          include: {
+            affectations: {
+              where: { estActuelle: true },
+              include: { etablissement: true, departement: true, poste: true },
+              take: 1,
+            },
+            contrats: {
+              where: { statut: 'ACTIF' },
+              include: { categorieProfessionnelle: true, conventionCollective: true },
+              take: 1,
+            },
+            soldesConges: {
+              orderBy: { anneeReference: 'desc' },
+              take: 1,
+            },
+            bulletinsPaie: {
+              include: { cyclePaie: true },
+              orderBy: { dateDebutPeriode: 'desc' },
+              take: 24,
+            },
+            absences: {
+              orderBy: { dateDebut: 'desc' },
+              take: 10,
+            },
+          },
+        });
+
+        // Auto-lier l'utilisateur s'il n'avait pas encore son id renseigné
+        if (employe && !employe.utilisateurId) {
+          await this.prisma.rhEmploye.update({
+            where: { id: employe.id },
+            data: { utilisateurId: userId },
+          });
+        }
+      }
+    }
+
+    if (!employe) {
+      return {
+        hasEmployeeProfile: false,
+        message: 'Aucun dossier collaborateur associé à ce compte utilisateur.',
+      };
+    }
+
+    return {
+      hasEmployeeProfile: true,
+      employe,
+    };
   }
 }
