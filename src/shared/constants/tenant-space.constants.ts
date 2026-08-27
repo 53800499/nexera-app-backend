@@ -70,6 +70,19 @@ export const RH_PERMISSIONS: PermissionDefinition[] = [
   { code: 'rh.accounting.export', description: 'Générer et exporter les OD de paie' },
 ];
 
+export const NOTES_FRAIS_PERMISSIONS: PermissionDefinition[] = [
+  { code: 'ndf.read', description: 'Consulter le module Notes de frais' },
+  { code: 'ndf.write', description: 'Gérer les notes de frais et dépenses' },
+  { code: 'manage:ndf', description: 'Administration Notes de frais (API guard)' },
+  { code: 'ndf.expenses.submit', description: 'Saisir et soumettre ses propres notes de frais' },
+  { code: 'ndf.reports.validate', description: 'Approuver ou rejeter les rapports de frais' },
+  { code: 'ndf.advances.manage', description: 'Gérer les ordres de mission et avances' },
+  { code: 'ndf.refund.manage', description: 'Déclencher et suivre les remboursements' },
+  { code: 'ndf.cards.reconcile', description: 'Gérer les cartes affaires et le rapprochement' },
+  { code: 'ndf.accounting.export', description: 'Transmettre les écritures vers la comptabilité' },
+  { code: 'ndf.settings.manage', description: 'Configurer les politiques et barèmes de dépenses' },
+];
+
 const CABINET_SPACE_PERMISSIONS: PermissionDefinition[] = [
   {
     code: 'cabinet.read',
@@ -132,7 +145,12 @@ export function getPermissionsForTenantType(
   if (type === TenantType.cabinet) {
     return [...shared, ...CABINET_SPACE_PERMISSIONS];
   }
-  return [...shared, ...COMPANY_CRM_PERMISSIONS, ...RH_PERMISSIONS];
+  return [
+    ...shared,
+    ...COMPANY_CRM_PERMISSIONS,
+    ...RH_PERMISSIONS,
+    ...NOTES_FRAIS_PERMISSIONS,
+  ];
 }
 
 export function getRolesForTenantType(type: TenantType): RoleDefinition[] {
@@ -159,6 +177,7 @@ export function getAllPlatformPermissions(): PermissionDefinition[] {
     ...SHARED_ADMIN_PERMISSIONS,
     ...COMPANY_CRM_PERMISSIONS,
     ...RH_PERMISSIONS,
+    ...NOTES_FRAIS_PERMISSIONS,
     ...CABINET_SPACE_PERMISSIONS,
   ]) {
     byCode.set(p.code, p);

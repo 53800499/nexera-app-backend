@@ -16,14 +16,19 @@ function extractMessages(errors: ValidationError[]): string[] {
 }
 
 export function validationExceptionFactory(errors: ValidationError[]) {
-  const messages = extractMessages(errors);
-  const message = messages[0] ?? 'Les données envoyées sont invalides.';
-
-  if (message.includes('should not exist')) {
-    return new BadRequestException(
-      'Certains champs envoyés ne sont pas autorisés.',
-    );
+  const rawMessages = extractMessages(errors);
+  if (rawMessages.length === 0) {
+    return new BadRequestException('Les données envoyées sont invalides.');
   }
 
-  return new BadRequestException(message);
+  const cleanedMessages = rawMessages.map((msg) => {
+    if (msg.includes('should not exist')) {
+      return 'Certains champs envoyés ne sont pas autorisés.';
+    }
+    return msg;
+  });
+
+  return new BadRequestException(
+    cleanedMessages.length === 1 ? cleanedMessages[0] : cleanedMessages,
+  );
 }

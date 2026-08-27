@@ -85,6 +85,19 @@ const RH_PERMISSIONS = [
   { code: 'rh.accounting.export', description: 'Générer et exporter les OD de paie' },
 ];
 
+const NOTES_FRAIS_PERMISSIONS = [
+  { code: 'ndf.read', description: 'Consulter le module Notes de frais' },
+  { code: 'ndf.write', description: 'Gérer les notes de frais et dépenses' },
+  { code: 'manage:ndf', description: 'Administration Notes de frais (API guard)' },
+  { code: 'ndf.expenses.submit', description: 'Saisir et soumettre ses propres notes de frais' },
+  { code: 'ndf.reports.validate', description: 'Approuver ou rejeter les rapports de frais' },
+  { code: 'ndf.advances.manage', description: 'Gérer les ordres de mission et avances' },
+  { code: 'ndf.refund.manage', description: 'Déclencher et suivre les remboursements' },
+  { code: 'ndf.cards.reconcile', description: 'Gérer les cartes affaires et le rapprochement' },
+  { code: 'ndf.accounting.export', description: 'Transmettre les écritures vers la comptabilité (M3)' },
+  { code: 'ndf.settings.manage', description: 'Configurer les politiques et barèmes de dépenses' },
+];
+
 const ALL_NEW_PERMISSIONS = [
   ...QUOTATION_PERMISSIONS,
   ...ORDER_PERMISSIONS,
@@ -98,9 +111,11 @@ const ALL_NEW_PERMISSIONS = [
   ...API_ALIAS_PERMISSIONS,
   ...CABINET_PERMISSIONS,
   ...RH_PERMISSIONS,
+  ...NOTES_FRAIS_PERMISSIONS,
 ];
 
 import { seedRhData } from './seed-rh';
+import { seedNdfData } from './seed-ndf';
 
 const ADMIN_ROLE_CODES = ['ADMIN', 'CEO', 'CABINET_ADMIN'];
 
@@ -121,6 +136,22 @@ const RH_MANAGER_PERMISSION_CODES = [
   'rh.payroll.validate',
   'rh.declarations.manage',
   'rh.accounting.export',
+];
+
+const NDF_MANAGER_PERMISSION_CODES = [
+  'dashboard.read',
+  'settings.read',
+  'sync.read',
+  'ndf.read',
+  'ndf.write',
+  'manage:ndf',
+  'ndf.expenses.submit',
+  'ndf.reports.validate',
+  'ndf.advances.manage',
+  'ndf.refund.manage',
+  'ndf.cards.reconcile',
+  'ndf.accounting.export',
+  'ndf.settings.manage',
 ];
 
 async function main() {
@@ -146,7 +177,7 @@ async function main() {
     where: { code: { in: ALL_NEW_PERMISSIONS.map((p) => p.code) } },
   });
 
-  // 2. Ensure RH_MANAGER role exists for all company tenants
+  // 2. Ensure RH_MANAGER & NDF_MANAGER roles exist for all company tenants
   const companyTenants = await prisma.tenant.findMany({
     where: { type: 'company' },
   });
@@ -168,6 +199,25 @@ async function main() {
       update: {
         name: 'Responsable RH & Paie',
         description: 'Gestion complète des salariés, contrats, congés et paie',
+      },
+    });
+
+    await prisma.role.upsert({
+      where: {
+        tenantId_code: {
+          tenantId: tenant.id,
+          code: 'NDF_MANAGER',
+        },
+      },
+      create: {
+        tenantId: tenant.id,
+        code: 'NDF_MANAGER',
+        name: 'Responsable Notes de Frais',
+        description: 'Gestion et validation des dépenses, missions et remboursements',
+      },
+      update: {
+        name: 'Responsable Notes de Frais',
+        description: 'Gestion et validation des dépenses, missions et remboursements',
       },
     });
   }
@@ -206,6 +256,25 @@ async function main() {
     });
   }
 
+  // 5. Grant NDF permissions to NDF_MANAGER roles across all tenants
+  const ndfPermissions = await prisma.permission.findMany({
+    where: { code: { in: NDF_MANAGER_PERMISSION_CODES } },
+  });
+
+  const ndfRoles = await prisma.role.findMany({
+    where: { code: 'NDF_MANAGER' },
+  });
+
+  for (const role of ndfRoles) {
+    await prisma.rolePermission.createMany({
+      data: ndfPermissions.map((permission) => ({
+        roleId: role.id,
+        permissionId: permission.id,
+      })),
+      skipDuplicates: true,
+    });
+  }
+
   console.log(
     `✅ Seeded ${permissions.length} permission(s).`,
   );
@@ -215,9 +284,15 @@ async function main() {
   console.log(
     `✅ Updated ${rhRoles.length} RH_MANAGER role(s) with RH permissions across ${companyTenants.length} company tenant(s).`,
   );
+  console.log(
+    `✅ Updated ${ndfRoles.length} NDF_MANAGER role(s) with NDF permissions across ${companyTenants.length} company tenant(s).`,
+  );
 
-  // 5. Seed RH & Paie standard reference tables (rubriques, barèmes, etc.)
+  // 6. Seed RH & Paie standard reference tables (rubriques, barèmes, etc.)
   await seedRhData(prisma);
+
+  // 7. Seed Notes de Frais standard reference tables (catégories, barèmes, etc.)
+  await seedNdfData(prisma);
 
   await prisma.$disconnect();
 }

@@ -38,8 +38,27 @@ export class PermissionsGuard implements CanActivate {
     }
 
     const request = context.switchToHttp().getRequest();
-    const userPermissions: string[] = request.user?.permissions ?? [];
+    const user = request.user;
+    if (!user) {
+      throw new ForbiddenException('Utilisateur non authentifié');
+    }
 
+    const userRoles: string[] = Array.isArray(user.roles)
+      ? user.roles
+      : user.role
+        ? [user.role]
+        : [];
+
+    // Admins, Dirigeants et CEOs ont un accès complet à l'ensemble des modules entreprise
+    if (
+      userRoles.some((r) =>
+        ['ADMIN', 'CEO', 'SUPER_ADMIN', 'admin', 'dirigeant'].includes(r),
+      )
+    ) {
+      return true;
+    }
+
+    const userPermissions: string[] = user.permissions ?? [];
     const allowed = userHasRequiredPermission(userPermissions, permissions);
 
     if (!allowed) {

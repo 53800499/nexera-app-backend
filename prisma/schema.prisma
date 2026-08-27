@@ -1940,6 +1940,11 @@ model RhPays {
   rubriquesPaie              RhRubriquePaie[]
   etablissements             RhEtablissement[]
   declarations               RhDeclarationSocialeFiscale[]
+  categoriesDepenseNdf       NdfCategorieDepense[]
+  politiquesDepenseNdf       NdfPolitiqueDepense[]
+  baremesKmNdf               NdfBaremeKilometrique[]
+  baremesPerDiemNdf          NdfBaremePerDiem[]
+  parametresNdf              NdfParametrePays[]
 
   @@map("rh_pays")
 }
@@ -2264,6 +2269,10 @@ model RhEmploye {
   remunerationsExcep    RhRemunerationExceptionnelle[]
   soldesToutCompte      RhSoldeToutCompte[]
   historiquesSalaire    RhHistoriqueSalaire[]
+  missionsNdf           NdfMission[]
+  avancesFraisNdf       NdfAvanceFrais[]
+  rapportsFraisNdf      NdfRapportFrais[]
+  cartesAffairesNdf     NdfCarteAffaire[]
 
   @@unique([tenantId, matricule])
   @@index([tenantId, statutEmploi])
@@ -3016,3 +3025,844 @@ model RhJournalAudit {
   @@index([tenantId, utilisateurId])
   @@map("rh_journal_audit")
 }
+
+// ====================================================
+// MODULE 5 — NOTES DE FRAIS (M5)
+// ====================================================
+
+// ----------------------------------------------------
+// ENUMS MODULE 5 : NOTES DE FRAIS
+// ----------------------------------------------------
+
+enum NdfTypeVehicule {
+  VOITURE
+  MOTO
+  AUTRE
+}
+
+enum NdfMissionStatut {
+  PLANIFIEE
+  EN_COURS
+  TERMINEE
+  ANNULEE
+}
+
+enum NdfAvanceStatut {
+  VERSEE
+  PARTIELLEMENT_REGULARISEE
+  SOLDEE
+}
+
+enum NdfRapportStatut {
+  BROUILLON
+  SOUMIS
+  EN_VALIDATION
+  VALIDE
+  REJETE
+  REMBOURSE
+}
+
+enum NdfModePaiement {
+  CARTE_PERSONNELLE
+  ESPECES
+  CARTE_AFFAIRE
+  VIREMENT_DIRECT_FOURNISSEUR
+}
+
+enum NdfDepenseStatut {
+  SAISIE
+  VALIDEE
+  REJETEE
+}
+
+enum NdfTypeFichier {
+  IMAGE
+  PDF
+}
+
+enum NdfStatutTraitementIa {
+  EN_ATTENTE
+  EXTRAIT
+  ECHEC_EXTRACTION
+  VALIDE_MANUELLEMENT
+}
+
+enum NdfIaFonction {
+  EXTRACTION_OCR
+  DETECTION_DOUBLON
+  DETECTION_ANOMALIE
+  CATEGORISATION
+}
+
+enum NdfTypeRegleAnomalie {
+  DOUBLON_POTENTIEL
+  DEPASSEMENT_POLITIQUE
+  INCOHERENCE_DATE_MISSION
+  INCOHERENCE_GEOGRAPHIQUE
+  MONTANT_INHABITUEL
+  FOURNISSEUR_A_RISQUE
+  FRACTIONNEMENT_SUSPECT
+}
+
+enum NdfNiveauSeverite {
+  INFORMATIF
+  A_VERIFIER
+  BLOQUANT
+}
+
+enum NdfAnomalieStatut {
+  DETECTEE
+  CONFIRMEE
+  ECARTEE_FAUX_POSITIF
+}
+
+enum NdfEtapeValidationStatut {
+  EN_ATTENTE
+  APPROUVEE
+  REJETEE
+  DELEGUEE
+}
+
+enum NdfModeRemboursement {
+  VIREMENT_SEPARE
+  INTEGRE_BULLETIN_PAIE
+}
+
+enum NdfRemboursementStatut {
+  A_PAYER
+  PAYE
+}
+
+enum NdfCarteAffaireStatut {
+  ACTIVE
+  SUSPENDUE
+  RESILIEE
+}
+
+enum NdfStatutRapprochement {
+  NON_RAPPROCHEE
+  RAPPROCHEE
+  SANS_NOTE_FRAIS_ASSOCIEE
+}
+
+enum NdfModeRapprochement {
+  AUTOMATIQUE_IA
+  MANUEL
+}
+
+enum NdfTypeEcritureComptable {
+  ENGAGEMENT_DEPENSE
+  REMBOURSEMENT
+}
+
+enum NdfStatutEcritureComptable {
+  GENEREE
+  TRANSMISE_M3
+  COMPTABILISEE_M3
+  REJETEE_M3
+}
+
+enum NdfSensEcriture {
+  DEBIT
+  CREDIT
+}
+
+enum NdfStatutEvenementFiscal {
+  TRANSMIS
+  INTEGRE_DECLARATION_M7
+}
+
+enum NdfStatutRemboursementPaie {
+  DEMANDE
+  INTEGRE_M4
+  REJETE_M4
+}
+
+enum NdfConnecteurSens {
+  IMPORT
+  EXPORT
+  BIDIRECTIONNEL
+}
+
+enum NdfConnecteurFormat {
+  CSV
+  XLSX
+  JSON
+  XML
+  API_REST
+}
+
+enum NdfJobStatut {
+  EN_ATTENTE
+  EN_COURS
+  TERMINE
+  EN_ERREUR
+}
+
+enum NdfAuditAction {
+  CREATION
+  MODIFICATION
+  SUPPRESSION
+  VALIDATION
+  REJET
+  REMBOURSEMENT
+  EXPORT
+  DETECTION_ANOMALIE
+}
+
+// ----------------------------------------------------
+// GROUPE A : RÉFÉRENTIEL ET PARAMÉTRAGE MULTI-PAYS
+// ----------------------------------------------------
+
+model NdfCategorieDepense {
+  id                         String                 @id @default(uuid())
+  paysCode                   String?                @map("pays_code")
+  code                       String                 @map("code")
+  libelle                    String                 @map("libelle")
+  compteSyscohadaDefaut      String?                @map("compte_syscohada_defaut")
+  tvaRecuperableParDefaut    Boolean                @default(true) @map("tva_recuperable_par_defaut")
+  tauxTvaParDefaut           Float?                 @map("taux_tva_par_defaut")
+  justificatifObligatoire    Boolean                @default(true) @map("justificatif_obligatoire")
+  actif                      Boolean                @default(true) @map("actif")
+  createdAt                  DateTime               @default(now()) @map("created_at")
+  updatedAt                  DateTime               @updatedAt @map("updated_at")
+  isDeleted                  Boolean                @default(false) @map("is_deleted")
+
+  pays                       RhPays?                @relation(fields: [paysCode], references: [codeIso2])
+  politiques                 NdfPolitiqueDepense[]
+  depenses                   NdfDepense[]
+
+  @@unique([paysCode, code])
+  @@index([paysCode, actif])
+  @@map("ndf_categorie_depense")
+}
+
+model NdfPolitiqueDepense {
+  id                   String              @id @default(uuid())
+  tenantId             String              @map("tenant_id")
+  categorieDepenseId   String              @map("categorie_depense_id")
+  paysCode             String?             @map("pays_code")
+  niveauHierarchique   String?             @map("niveau_hierarchique")
+  plafondMontant       Float?              @map("plafond_montant")
+  plafondDevise        String?             @default("XOF") @map("plafond_devise")
+  regleComplementaire  Json?               @map("regle_complementaire")
+  dateDebutValidite    DateTime            @map("date_debut_validite")
+  dateFinValidite      DateTime?           @map("date_fin_validite")
+  createdAt            DateTime            @default(now()) @map("created_at")
+  updatedAt            DateTime            @updatedAt @map("updated_at")
+  isDeleted            Boolean             @default(false) @map("is_deleted")
+
+  categorieDepense     NdfCategorieDepense @relation(fields: [categorieDepenseId], references: [id], onDelete: Cascade)
+  pays                 RhPays?             @relation(fields: [paysCode], references: [codeIso2])
+
+  @@index([tenantId, categorieDepenseId, dateDebutValidite])
+  @@map("ndf_politique_depense")
+}
+
+model NdfBaremeKilometrique {
+  id                   String          @id @default(uuid())
+  paysCode             String          @map("pays_code")
+  puissanceFiscaleMin  Int             @map("puissance_fiscale_min")
+  puissanceFiscaleMax  Int?            @map("puissance_fiscale_max")
+  typeVehicule         NdfTypeVehicule @default(VOITURE) @map("type_vehicule")
+  tauxParKm            Float           @map("taux_par_km")
+  deviseCode           String          @default("XOF") @map("devise_code")
+  dateDebutValidite    DateTime        @map("date_debut_validite")
+  dateFinValidite      DateTime?       @map("date_fin_validite")
+  texteReference       String?         @map("texte_reference")
+  createdAt            DateTime        @default(now()) @map("created_at")
+  updatedAt            DateTime        @updatedAt @map("updated_at")
+  isDeleted            Boolean         @default(false) @map("is_deleted")
+
+  pays                 RhPays          @relation(fields: [paysCode], references: [codeIso2])
+  depensesKilometriques NdfDepenseKilometrique[]
+
+  @@index([paysCode, typeVehicule, dateDebutValidite])
+  @@map("ndf_bareme_kilometrique")
+}
+
+model NdfBaremePerDiem {
+  id                              String    @id @default(uuid())
+  paysCode                        String    @map("pays_code")
+  zoneGeographique                String    @map("zone_geographique")
+  categorieProfessionnelleLibelle String?   @map("categorie_professionnelle_libelle")
+  montantJour                     Float     @map("montant_jour")
+  deviseCode                      String    @default("XOF") @map("devise_code")
+  couvreHebergement               Boolean   @default(false) @map("couvre_hebergement")
+  couvreRestauration              Boolean   @default(true) @map("couvre_restauration")
+  dateDebutValidite               DateTime  @map("date_debut_validite")
+  dateFinValidite                 DateTime? @map("date_fin_validite")
+  createdAt                       DateTime  @default(now()) @map("created_at")
+  updatedAt                       DateTime  @updatedAt @map("updated_at")
+  isDeleted                       Boolean   @default(false) @map("is_deleted")
+
+  pays                            RhPays    @relation(fields: [paysCode], references: [codeIso2])
+  depensesPerDiem                 NdfDepensePerDiem[]
+
+  @@index([paysCode, zoneGeographique, dateDebutValidite])
+  @@map("ndf_bareme_per_diem")
+}
+
+model NdfTauxChange {
+  id           String    @id @default(uuid())
+  deviseSource String    @map("devise_source")
+  deviseCible  String    @map("devise_cible")
+  dateCours    DateTime  @map("date_cours")
+  taux         Float     @map("taux")
+  sourceCours  String?   @map("source_cours")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+  isDeleted    Boolean   @default(false) @map("is_deleted")
+
+  @@unique([deviseSource, deviseCible, dateCours])
+  @@index([deviseSource, deviseCible, dateCours])
+  @@map("ndf_taux_change")
+}
+
+model NdfParametrePays {
+  id                String    @id @default(uuid())
+  paysCode          String    @map("pays_code")
+  codeParametre     String    @map("code_parametre")
+  libelle           String    @map("libelle")
+  valeur            String    @map("valeur")
+  unite             String?   @map("unite")
+  texteReference    String?   @map("texte_reference")
+  dateDebutValidite DateTime  @map("date_debut_validite")
+  dateFinValidite   DateTime? @map("date_fin_validite")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+  isDeleted         Boolean   @default(false) @map("is_deleted")
+
+  pays              RhPays    @relation(fields: [paysCode], references: [codeIso2])
+
+  @@unique([paysCode, codeParametre, dateDebutValidite])
+  @@map("ndf_parametre_pays")
+}
+
+// ----------------------------------------------------
+// GROUPE B : RAPPORTS DE FRAIS, MISSIONS ET AVANCES
+// ----------------------------------------------------
+
+model NdfMission {
+  id              String           @id @default(uuid())
+  tenantId        String           @map("tenant_id")
+  employeRefId    String           @map("employe_ref_id")
+  objet           String           @map("objet")
+  lieuDestination String?          @map("lieu_destination")
+  dateDebut       DateTime         @map("date_debut")
+  dateFin         DateTime         @map("date_fin")
+  statut          NdfMissionStatut @default(PLANIFIEE) @map("statut")
+  createdAt       DateTime         @default(now()) @map("created_at")
+  updatedAt       DateTime         @updatedAt @map("updated_at")
+  isDeleted       Boolean          @default(false) @map("is_deleted")
+
+  employe         RhEmploye        @relation(fields: [employeRefId], references: [id])
+  avances         NdfAvanceFrais[]
+  rapportsFrais   NdfRapportFrais[]
+
+  @@index([tenantId, employeRefId, dateDebut])
+  @@map("ndf_mission")
+}
+
+model NdfAvanceFrais {
+  id                 String          @id @default(uuid())
+  tenantId           String          @map("tenant_id")
+  employeRefId       String          @map("employe_ref_id")
+  missionId          String?         @map("mission_id")
+  montant            Float           @map("montant")
+  deviseCode         String          @default("XOF") @map("devise_code")
+  dateVersement      DateTime        @map("date_versement")
+  montantRegularise  Float           @default(0) @map("montant_regularise")
+  statut             NdfAvanceStatut @default(VERSEE) @map("statut")
+  createdAt          DateTime        @default(now()) @map("created_at")
+  updatedAt          DateTime        @updatedAt @map("updated_at")
+  isDeleted          Boolean         @default(false) @map("is_deleted")
+
+  employe            RhEmploye       @relation(fields: [employeRefId], references: [id])
+  mission            NdfMission?     @relation(fields: [missionId], references: [id])
+  rapportsFrais      NdfRapportFrais[]
+
+  @@index([tenantId, employeRefId, statut])
+  @@map("ndf_avance_frais")
+}
+
+model NdfRapportFrais {
+  id                         String           @id @default(uuid())
+  tenantId                   String           @map("tenant_id")
+  employeRefId               String           @map("employe_ref_id")
+  missionId                  String?          @map("mission_id")
+  numeroRapport              String           @unique @map("numero_rapport")
+  objet                      String           @map("objet")
+  periodeDebut               DateTime         @map("periode_debut")
+  periodeFin                 DateTime         @map("periode_fin")
+  montantTotal               Float            @default(0) @map("montant_total")
+  montantTvaRecuperableTotal Float            @default(0) @map("montant_tva_recuperable_total")
+  avanceFraisId              String?          @map("avance_frais_id")
+  statut                     NdfRapportStatut @default(BROUILLON) @map("statut")
+  scoreRisqueIa              Float?           @map("score_risque_ia")
+  createdAt                  DateTime         @default(now()) @map("created_at")
+  updatedAt                  DateTime         @updatedAt @map("updated_at")
+  isDeleted                  Boolean          @default(false) @map("is_deleted")
+
+  employe                    RhEmploye        @relation(fields: [employeRefId], references: [id])
+  mission                    NdfMission?      @relation(fields: [missionId], references: [id])
+  avanceFrais                NdfAvanceFrais?  @relation(fields: [avanceFraisId], references: [id])
+  depenses                   NdfDepense[]
+  anomalies                  NdfAnomalieDetectee[]
+  etapesValidation           NdfEtapeValidation[]
+  historiqueStatuts          NdfHistoriqueStatut[]
+  remboursement              NdfRemboursement?
+  ecrituresComptables        NdfEcritureComptable[]
+
+  @@index([tenantId, employeRefId, statut])
+  @@index([tenantId, periodeDebut, periodeFin])
+  @@map("ndf_rapport_frais")
+}
+
+// ----------------------------------------------------
+// GROUPE C : DÉPENSES INDIVIDUELLES
+// ----------------------------------------------------
+
+model NdfDepense {
+  id                      String           @id @default(uuid())
+  tenantId                String           @map("tenant_id")
+  ndfRapportFraisId       String           @map("ndf_rapport_frais_id")
+  categorieDepenseId      String           @map("categorie_depense_id")
+  dateDepense             DateTime         @map("date_depense")
+  fournisseurLibelle      String?          @map("fournisseur_libelle")
+  montantTtc              Float            @map("montant_ttc")
+  montantTva              Float?           @map("montant_tva")
+  tauxTvaApplique         Float?           @map("taux_tva_applique")
+  deviseCode              String           @default("XOF") @map("devise_code")
+  montantDeviseReference  Float            @map("montant_devise_reference")
+  modePaiement            NdfModePaiement  @default(CARTE_PERSONNELLE) @map("mode_paiement")
+  depasseSeuilEspeceLegal Boolean          @default(false) @map("depasse_seuil_espece_legal")
+  depassePolitique        Boolean          @default(false) @map("depasse_politique")
+  statut                  NdfDepenseStatut @default(SAISIE) @map("statut")
+  createdAt               DateTime         @default(now()) @map("created_at")
+  updatedAt               DateTime         @updatedAt @map("updated_at")
+  isDeleted               Boolean          @default(false) @map("is_deleted")
+
+  rapportFrais            NdfRapportFrais  @relation(fields: [ndfRapportFraisId], references: [id], onDelete: Cascade)
+  categorieDepense        NdfCategorieDepense @relation(fields: [categorieDepenseId], references: [id])
+  depenseKilometrique     NdfDepenseKilometrique?
+  depensePerDiem          NdfDepensePerDiem?
+  justificatifs           NdfJustificatif[]
+  anomalies               NdfAnomalieDetectee[]
+  anomaliesSuspectes      NdfAnomalieDetectee[] @relation("DepenseLieeSuspectee")
+  rapprochementsCarte     NdfRapprochementCarte[]
+  evenementFiscal         NdfEvenementFiscalTransmis?
+
+  @@index([tenantId, ndfRapportFraisId, dateDepense])
+  @@index([tenantId, categorieDepenseId])
+  @@map("ndf_depense")
+}
+
+model NdfDepenseKilometrique {
+  id                       String                @id @default(uuid())
+  ndfDepenseId             String                @unique @map("ndf_depense_id")
+  trajetDepart             String                @map("trajet_depart")
+  trajetArrivee            String                @map("trajet_arrivee")
+  distanceKm               Float                 @map("distance_km")
+  puissanceFiscaleVehicule Int                   @map("puissance_fiscale_vehicule")
+  baremeKilometriqueId     String                @map("bareme_kilometrique_id")
+  createdAt                DateTime              @default(now()) @map("created_at")
+  updatedAt                DateTime              @updatedAt @map("updated_at")
+  isDeleted                Boolean               @default(false) @map("is_deleted")
+
+  depense                  NdfDepense            @relation(fields: [ndfDepenseId], references: [id], onDelete: Cascade)
+  baremeKilometrique       NdfBaremeKilometrique @relation(fields: [baremeKilometriqueId], references: [id])
+
+  @@map("ndf_depense_kilometrique")
+}
+
+model NdfDepensePerDiem {
+  id               String           @id @default(uuid())
+  ndfDepenseId     String           @unique @map("ndf_depense_id")
+  nombreJours      Float            @map("nombre_jours")
+  baremePerDiemId  String           @map("bareme_per_diem_id")
+  createdAt        DateTime         @default(now()) @map("created_at")
+  updatedAt        DateTime         @updatedAt @map("updated_at")
+  isDeleted        Boolean          @default(false) @map("is_deleted")
+
+  depense          NdfDepense       @relation(fields: [ndfDepenseId], references: [id], onDelete: Cascade)
+  baremePerDiem    NdfBaremePerDiem @relation(fields: [baremePerDiemId], references: [id])
+
+  @@map("ndf_depense_per_diem")
+}
+
+model NdfJustificatif {
+  id                  String                @id @default(uuid())
+  tenantId            String                @map("tenant_id")
+  ndfDepenseId        String                @map("ndf_depense_id")
+  fichierUrl          String                @map("fichier_url")
+  typeFichier         NdfTypeFichier        @map("type_fichier")
+  dateUpload          DateTime              @default(now()) @map("date_upload")
+  statutTraitementIa  NdfStatutTraitementIa @default(EN_ATTENTE) @map("statut_traitement_ia")
+  createdAt           DateTime              @default(now()) @map("created_at")
+  updatedAt           DateTime              @updatedAt @map("updated_at")
+  isDeleted           Boolean               @default(false) @map("is_deleted")
+
+  depense             NdfDepense            @relation(fields: [ndfDepenseId], references: [id], onDelete: Cascade)
+  extractionsIa       NdfExtractionIa[]
+
+  @@index([tenantId, ndfDepenseId])
+  @@map("ndf_justificatif")
+}
+
+// ----------------------------------------------------
+// GROUPE D : INTELLIGENCE ARTIFICIELLE
+// ----------------------------------------------------
+
+model NdfModeleIaVersion {
+  id                 String            @id @default(uuid())
+  fonction           NdfIaFonction     @map("fonction")
+  nomModele          String            @map("nom_modele")
+  version            String            @map("version")
+  dateMiseEnService  DateTime          @map("date_mise_en_service")
+  dateFinService     DateTime?         @map("date_fin_service")
+  createdAt          DateTime          @default(now()) @map("created_at")
+  updatedAt          DateTime          @updatedAt @map("updated_at")
+  isDeleted          Boolean           @default(false) @map("is_deleted")
+
+  extractions        NdfExtractionIa[]
+
+  @@unique([nomModele, version])
+  @@map("ndf_modele_ia_version")
+}
+
+model NdfExtractionIa {
+  id                    String             @id @default(uuid())
+  ndfJustificatifId     String             @map("ndf_justificatif_id")
+  modeleIaVersionId     String             @map("modele_ia_version_id")
+  champsExtraits        Json               @map("champs_extraits")
+  scoreConfianceGlobal  Float              @map("score_confiance_global")
+  dateExtraction        DateTime           @default(now()) @map("date_extraction")
+  corrigeManuellement   Boolean            @default(false) @map("corrige_manuellement")
+  createdAt             DateTime           @default(now()) @map("created_at")
+  updatedAt             DateTime           @updatedAt @map("updated_at")
+  isDeleted             Boolean            @default(false) @map("is_deleted")
+
+  justificatif          NdfJustificatif    @relation(fields: [ndfJustificatifId], references: [id], onDelete: Cascade)
+  modeleIaVersion       NdfModeleIaVersion @relation(fields: [modeleIaVersionId], references: [id])
+
+  @@index([ndfJustificatifId])
+  @@map("ndf_extraction_ia")
+}
+
+model NdfRegleDetectionAnomalie {
+  id                 String                @id @default(uuid())
+  tenantId           String?               @map("tenant_id")
+  typeRegle          NdfTypeRegleAnomalie  @map("type_regle")
+  seuilDeclenchement Json?                 @map("seuil_declenchement")
+  niveauSeverite     NdfNiveauSeverite     @default(A_VERIFIER) @map("niveau_severite")
+  actif              Boolean               @default(true) @map("actif")
+  createdAt          DateTime              @default(now()) @map("created_at")
+  updatedAt          DateTime              @updatedAt @map("updated_at")
+  isDeleted          Boolean               @default(false) @map("is_deleted")
+
+  anomalies          NdfAnomalieDetectee[]
+
+  @@index([tenantId, typeRegle, actif])
+  @@map("ndf_regle_detection_anomalie")
+}
+
+model NdfAnomalieDetectee {
+  id                      String                    @id @default(uuid())
+  tenantId                String                    @map("tenant_id")
+  ndfDepenseId            String?                   @map("ndf_depense_id")
+  ndfRapportFraisId       String                    @map("ndf_rapport_frais_id")
+  regleDetectionId        String                    @map("regle_detection_id")
+  description             String                    @map("description")
+  scoreRisque             Float                     @map("score_risque")
+  depenseLieeSuspecteeId  String?                   @map("depense_liee_suspectee_id")
+  statut                  NdfAnomalieStatut         @default(DETECTEE) @map("statut")
+  traiteParUtilisateurId  String?                   @map("traite_par_utilisateur_id")
+  createdAt               DateTime                  @default(now()) @map("created_at")
+  updatedAt               DateTime                  @updatedAt @map("updated_at")
+  isDeleted               Boolean                   @default(false) @map("is_deleted")
+
+  depense                 NdfDepense?               @relation(fields: [ndfDepenseId], references: [id], onDelete: Cascade)
+  rapportFrais            NdfRapportFrais           @relation(fields: [ndfRapportFraisId], references: [id], onDelete: Cascade)
+  regleDetection          NdfRegleDetectionAnomalie @relation(fields: [regleDetectionId], references: [id])
+  depenseLieeSuspectee    NdfDepense?               @relation("DepenseLieeSuspectee", fields: [depenseLieeSuspecteeId], references: [id])
+
+  @@index([tenantId, ndfRapportFraisId, statut])
+  @@map("ndf_anomalie_detectee")
+}
+
+// ----------------------------------------------------
+// GROUPE E : WORKFLOW DE VALIDATION
+// ----------------------------------------------------
+
+model NdfEtapeValidation {
+  id                       String                  @id @default(uuid())
+  ndfRapportFraisId        String                  @map("ndf_rapport_frais_id")
+  ordre                    Int                     @map("ordre")
+  valideurUtilisateurId    String                  @map("valideur_utilisateur_id")
+  delegueParUtilisateurId  String?                 @map("delegue_par_utilisateur_id")
+  statut                   NdfEtapeValidationStatut @default(EN_ATTENTE) @map("statut")
+  dateDecision             DateTime?               @map("date_decision")
+  commentaire              String?                 @map("commentaire")
+  createdAt                DateTime                @default(now()) @map("created_at")
+  updatedAt                DateTime                @updatedAt @map("updated_at")
+  isDeleted                Boolean                 @default(false) @map("is_deleted")
+
+  rapportFrais             NdfRapportFrais         @relation(fields: [ndfRapportFraisId], references: [id], onDelete: Cascade)
+
+  @@index([ndfRapportFraisId, ordre])
+  @@index([valideurUtilisateurId, statut])
+  @@map("ndf_etape_validation")
+}
+
+model NdfHistoriqueStatut {
+  id                String          @id @default(uuid())
+  ndfRapportFraisId String          @map("ndf_rapport_frais_id")
+  ancienStatut      String?         @map("ancien_statut")
+  nouveauStatut     String          @map("nouveau_statut")
+  dateChangement    DateTime        @default(now()) @map("date_changement")
+  utilisateurId     String?         @map("utilisateur_id")
+  commentaire       String?         @map("commentaire")
+  createdAt         DateTime        @default(now()) @map("created_at")
+  updatedAt         DateTime        @updatedAt @map("updated_at")
+  isDeleted         Boolean         @default(false) @map("is_deleted")
+
+  rapportFrais      NdfRapportFrais @relation(fields: [ndfRapportFraisId], references: [id], onDelete: Cascade)
+
+  @@index([ndfRapportFraisId, dateChangement])
+  @@map("ndf_historique_statut")
+}
+
+// ----------------------------------------------------
+// GROUPE F : REMBOURSEMENT, CARTES AFFAIRES & RAPPROCHEMENT
+// ----------------------------------------------------
+
+model NdfRemboursement {
+  id                         String                 @id @default(uuid())
+  tenantId                   String                 @map("tenant_id")
+  ndfRapportFraisId          String                 @unique @map("ndf_rapport_frais_id")
+  modeRemboursement          NdfModeRemboursement   @default(VIREMENT_SEPARE) @map("mode_remboursement")
+  montant                    Float                  @map("montant")
+  dateRemboursement          DateTime?              @map("date_remboursement")
+  referenceBancaire          String?                @map("reference_bancaire")
+  referenceBulletinPaieM4    String?                @map("reference_bulletin_paie_m4")
+  statut                     NdfRemboursementStatut @default(A_PAYER) @map("statut")
+  createdAt                  DateTime               @default(now()) @map("created_at")
+  updatedAt                  DateTime               @updatedAt @map("updated_at")
+  isDeleted                  Boolean                @default(false) @map("is_deleted")
+
+  rapportFrais               NdfRapportFrais        @relation(fields: [ndfRapportFraisId], references: [id], onDelete: Cascade)
+  remboursementPaieTransmis  NdfRemboursementPaieTransmis?
+
+  @@index([tenantId, statut])
+  @@map("ndf_remboursement")
+}
+
+model NdfCarteAffaire {
+  id             String                      @id @default(uuid())
+  tenantId       String                      @map("tenant_id")
+  employeRefId   String                      @map("employe_ref_id")
+  numeroMasque   String                      @map("numero_masque")
+  emetteur       String?                     @map("emetteur")
+  plafondMensuel Float?                      @map("plafond_mensuel")
+  statut         NdfCarteAffaireStatut       @default(ACTIVE) @map("statut")
+  createdAt      DateTime                    @default(now()) @map("created_at")
+  updatedAt      DateTime                    @updatedAt @map("updated_at")
+  isDeleted      Boolean                     @default(false) @map("is_deleted")
+
+  employe        RhEmploye                   @relation(fields: [employeRefId], references: [id])
+  transactions   NdfTransactionCarteAffaire[]
+
+  @@index([tenantId, employeRefId, statut])
+  @@map("ndf_carte_affaire")
+}
+
+model NdfTransactionCarteAffaire {
+  id                  String                    @id @default(uuid())
+  tenantId            String                    @map("tenant_id")
+  ndfCarteAffaireId   String                    @map("ndf_carte_affaire_id")
+  dateTransaction     DateTime                  @map("date_transaction")
+  montant             Float                     @map("montant")
+  deviseCode          String                    @default("XOF") @map("devise_code")
+  libelleCommercant   String?                   @map("libelle_commercant")
+  statutRapprochement NdfStatutRapprochement    @default(NON_RAPPROCHEE) @map("statut_rapprochement")
+  createdAt           DateTime                  @default(now()) @map("created_at")
+  updatedAt           DateTime                  @updatedAt @map("updated_at")
+  isDeleted           Boolean                   @default(false) @map("is_deleted")
+
+  carteAffaire        NdfCarteAffaire           @relation(fields: [ndfCarteAffaireId], references: [id], onDelete: Cascade)
+  rapprochements      NdfRapprochementCarte[]
+
+  @@index([tenantId, ndfCarteAffaireId, dateTransaction])
+  @@index([tenantId, statutRapprochement])
+  @@map("ndf_transaction_carte_affaire")
+}
+
+model NdfRapprochementCarte {
+  id                           String                     @id @default(uuid())
+  ndfTransactionCarteAffaireId String                     @map("ndf_transaction_carte_affaire_id")
+  ndfDepenseId                 String                     @map("ndf_depense_id")
+  modeRapprochement            NdfModeRapprochement       @default(AUTOMATIQUE_IA) @map("mode_rapprochement")
+  scoreCorrespondance          Float?                     @map("score_correspondance")
+  createdAt                    DateTime                   @default(now()) @map("created_at")
+  updatedAt                    DateTime                   @updatedAt @map("updated_at")
+  isDeleted                    Boolean                    @default(false) @map("is_deleted")
+
+  transactionCarteAffaire      NdfTransactionCarteAffaire @relation(fields: [ndfTransactionCarteAffaireId], references: [id], onDelete: Cascade)
+  depense                      NdfDepense                 @relation(fields: [ndfDepenseId], references: [id], onDelete: Cascade)
+
+  @@index([ndfTransactionCarteAffaireId, ndfDepenseId])
+  @@map("ndf_rapprochement_carte")
+}
+
+// ----------------------------------------------------
+// GROUPE G : INTERFACES INTERMODULAIRES (M3, M4, M7)
+// ----------------------------------------------------
+
+model NdfEcritureComptable {
+  id                 String                     @id @default(uuid())
+  tenantId           String                     @map("tenant_id")
+  ndfRapportFraisId  String                     @map("ndf_rapport_frais_id")
+  typeEcriture       NdfTypeEcritureComptable   @map("type_ecriture")
+  dateEcriture       DateTime                   @map("date_ecriture")
+  montantTotalDebit  Float                      @map("montant_total_debit")
+  montantTotalCredit Float                      @map("montant_total_credit")
+  statut             NdfStatutEcritureComptable @default(GENEREE) @map("statut")
+  referenceEcritureM3 String?                   @map("reference_ecriture_m3")
+  createdAt          DateTime                   @default(now()) @map("created_at")
+  updatedAt          DateTime                   @updatedAt @map("updated_at")
+  isDeleted          Boolean                    @default(false) @map("is_deleted")
+
+  rapportFrais       NdfRapportFrais            @relation(fields: [ndfRapportFraisId], references: [id], onDelete: Cascade)
+  lignes             NdfEcritureComptableLigne[]
+
+  @@index([tenantId, ndfRapportFraisId, statut])
+  @@map("ndf_ecriture_comptable")
+}
+
+model NdfEcritureComptableLigne {
+  id                    String               @id @default(uuid())
+  ndfEcritureComptableId String               @map("ndf_ecriture_comptable_id")
+  compteSyscohada       String               @map("compte_syscohada")
+  libelle               String               @map("libelle")
+  sens                  NdfSensEcriture      @map("sens")
+  montant               Float                @map("montant")
+  createdAt             DateTime             @default(now()) @map("created_at")
+  updatedAt             DateTime             @updatedAt @map("updated_at")
+  isDeleted             Boolean              @default(false) @map("is_deleted")
+
+  ecritureComptable     NdfEcritureComptable @relation(fields: [ndfEcritureComptableId], references: [id], onDelete: Cascade)
+
+  @@index([ndfEcritureComptableId])
+  @@map("ndf_ecriture_comptable_ligne")
+}
+
+model NdfEvenementFiscalTransmis {
+  id                   String                   @id @default(uuid())
+  ndfDepenseId         String                   @unique @map("ndf_depense_id")
+  referenceEvenementM7 String?                  @map("reference_evenement_m7")
+  dateTransmission     DateTime                 @default(now()) @map("date_transmission")
+  statut               NdfStatutEvenementFiscal @default(TRANSMIS) @map("statut")
+  createdAt            DateTime                 @default(now()) @map("created_at")
+  updatedAt            DateTime                 @updatedAt @map("updated_at")
+  isDeleted            Boolean                  @default(false) @map("is_deleted")
+
+  depense              NdfDepense               @relation(fields: [ndfDepenseId], references: [id], onDelete: Cascade)
+
+  @@map("ndf_evenement_fiscal_transmis")
+}
+
+model NdfRemboursementPaieTransmis {
+  id                         String                    @id @default(uuid())
+  ndfRemboursementId         String                    @unique @map("ndf_remboursement_id")
+  referenceElementVariableM4 String?                   @map("reference_element_variable_m4")
+  periodePaieCible           String                    @map("periode_paie_cible")
+  statut                     NdfStatutRemboursementPaie @default(DEMANDE) @map("statut")
+  createdAt                  DateTime                  @default(now()) @map("created_at")
+  updatedAt                  DateTime                  @updatedAt @map("updated_at")
+  isDeleted                  Boolean                   @default(false) @map("is_deleted")
+
+  remboursement              NdfRemboursement          @relation(fields: [ndfRemboursementId], references: [id], onDelete: Cascade)
+
+  @@map("ndf_remboursement_paie_transmis")
+}
+
+// ----------------------------------------------------
+// GROUPE H : IMPORT / EXPORT ET AUDIT
+// ----------------------------------------------------
+
+model NdfConnecteurEchange {
+  id                  String               @id @default(uuid())
+  code                String               @unique @map("code")
+  libelle             String               @map("libelle")
+  sens                NdfConnecteurSens    @map("sens")
+  format              NdfConnecteurFormat  @map("format")
+  systemeTiersLibelle String?              @map("systeme_tiers_libelle")
+  actif               Boolean              @default(true) @map("actif")
+  createdAt           DateTime             @default(now()) @map("created_at")
+  updatedAt           DateTime             @updatedAt @map("updated_at")
+  isDeleted           Boolean              @default(false) @map("is_deleted")
+
+  mappings            NdfMappingChamp[]
+  jobs                NdfJobImportExport[]
+
+  @@map("ndf_connecteur_echange")
+}
+
+model NdfMappingChamp {
+  id                    String               @id @default(uuid())
+  ndfConnecteurEchangeId String              @map("ndf_connecteur_echange_id")
+  champSource           String               @map("champ_source")
+  champCibleNexera      String               @map("champ_cible_nexera")
+  regleTransformation   Json?                @map("regle_transformation")
+  obligatoire           Boolean              @default(false) @map("obligatoire")
+  createdAt             DateTime             @default(now()) @map("created_at")
+  updatedAt             DateTime             @updatedAt @map("updated_at")
+  isDeleted             Boolean              @default(false) @map("is_deleted")
+
+  connecteurEchange     NdfConnecteurEchange @relation(fields: [ndfConnecteurEchangeId], references: [id], onDelete: Cascade)
+
+  @@index([ndfConnecteurEchangeId])
+  @@map("ndf_mapping_champ")
+}
+
+model NdfJobImportExport {
+  id                    String               @id @default(uuid())
+  tenantId              String               @map("tenant_id")
+  ndfConnecteurEchangeId String              @map("ndf_connecteur_echange_id")
+  statut                NdfJobStatut         @default(EN_ATTENTE) @map("statut")
+  lignesTraitees        Int                  @default(0) @map("lignes_traitees")
+  lignesEnErreur        Int                  @default(0) @map("lignes_en_erreur")
+  rapportErreurs        Json?                @map("rapport_erreurs")
+  dateDebut             DateTime             @default(now()) @map("date_debut")
+  dateFin               DateTime?            @map("date_fin")
+  createdAt             DateTime             @default(now()) @map("created_at")
+  updatedAt             DateTime             @updatedAt @map("updated_at")
+  isDeleted             Boolean              @default(false) @map("is_deleted")
+
+  connecteurEchange     NdfConnecteurEchange @relation(fields: [ndfConnecteurEchangeId], references: [id])
+
+  @@index([tenantId, statut])
+  @@map("ndf_job_import_export")
+}
+
+model NdfJournalAudit {
+  id            String         @id @default(uuid())
+  tenantId      String         @map("tenant_id")
+  entiteType    String         @map("entite_type")
+  entiteId      String?        @map("entite_id")
+  action        NdfAuditAction @map("action")
+  donneesAvant  Json?          @map("donnees_avant")
+  donneesApres  Json?          @map("donnees_apres")
+  utilisateurId String?        @map("utilisateur_id")
+  adresseIp     String?        @map("adresse_ip")
+  userAgent     String?        @map("user_agent")
+  createdAt     DateTime       @default(now()) @map("date_action")
+  updatedAt     DateTime       @updatedAt @map("updated_at")
+  isDeleted     Boolean        @default(false) @map("is_deleted")
+
+  @@index([tenantId, entiteType, createdAt])
+  @@index([tenantId, utilisateurId])
+  @@map("ndf_journal_audit")
+}
+
