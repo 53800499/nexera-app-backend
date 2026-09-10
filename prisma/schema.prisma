@@ -3866,3 +3866,788 @@ model NdfJournalAudit {
   @@map("ndf_journal_audit")
 }
 
+// ============================================================================
+// ============================================================================
+// MODULE 6 : ESPACE CABINET (CROSS-TENANT SUPERVISION & EXPERT-COMPTABLE)
+// ============================================================================
+// ============================================================================
+
+enum CabinetTypeMandat {
+  TENUE_COMPTABLE
+  REVISION_ANNUELLE
+  EXPERTISE_PAIE
+  ASSISTANCE_FISCALE
+  AUDIT_CONTRACTUEL
+  MISSION_PONCTUELLE
+}
+
+enum CabinetStatutMandat {
+  ACTIF
+  SUSPENDU
+  RESILIE
+  TERMINE
+}
+
+enum CabinetPeriodiciteFacturation {
+  MENSUELLE
+  TRIMESTRIELLE
+  ANNUELLE
+  FORFAIT_PONCTUEL
+}
+
+enum CabinetStatutLettreMission {
+  BROUILLON
+  ENVOYEE
+  SIGNEE
+  EXPIREE
+}
+
+enum CabinetNiveauHabilitation {
+  CONSULTATION
+  ANNOTATION
+  VALIDATION
+  SIGNATURE
+}
+
+enum CabinetStatutCollaborateur {
+  ACTIF
+  SUSPENDU
+  SORTI
+}
+
+enum CabinetTypeMission {
+  RECURRENTE
+  PONCTUELLE
+}
+
+enum CabinetStatutMission {
+  PLANIFIEE
+  EN_COURS
+  EN_REVUE
+  TERMINEE
+  EN_RETARD
+}
+
+enum CabinetStatutTache {
+  A_FAIRE
+  EN_COURS
+  FAITE
+  BLOQUEE
+}
+
+enum CabinetStatutEcheance {
+  A_VENIR
+  DUE
+  TRAITEE
+  EN_RETARD
+}
+
+enum CabinetModuleSource {
+  M1_STOCK
+  M2_GESTION_COMMERCIALE
+  M3_COMPTABILITE
+  M4_RH_PAIE
+  M5_NOTES_FRAIS
+  M7_FISCALITE
+}
+
+enum CabinetNiveauSeverite {
+  INFORMATION
+  A_CORRIGER
+  BLOQUANT
+}
+
+enum CabinetStatutPointRevue {
+  OUVERT
+  EN_TRAITEMENT
+  RESOLU
+  ECARTE
+}
+
+enum CabinetStatutChecklistItem {
+  NON_CONTROLE
+  CONFORME
+  NON_CONFORME
+  NON_APPLICABLE
+}
+
+enum CabinetDecisionValidation {
+  APPROUVE
+  REJETE
+  RENVOYE_POUR_CORRECTION
+}
+
+enum CabinetMethodeSignature {
+  SIGNATURE_ELECTRONIQUE_QUALIFIEE
+  SIGNATURE_ELECTRONIQUE_SIMPLE
+  SIGNATURE_MANUSCRITE_SCANNEE
+}
+
+enum CabinetStatutNoteHonoraires {
+  BROUILLON
+  EMISE
+  PAYEE
+  EN_RETARD
+  ANNULEE
+}
+
+enum CabinetStatutDemandePiece {
+  EN_ATTENTE
+  RECUE
+  RELANCEE
+  SANS_OBJET
+}
+
+enum CabinetAuteurMessage {
+  COLLABORATEUR_CABINET
+  CONTACT_CLIENT
+}
+
+enum CabinetDeposeParType {
+  COLLABORATEUR_CABINET
+  CONTACT_CLIENT
+}
+
+enum CabinetDecisionConflit {
+  AUCUNE_ACTION
+  RETRAIT_DU_DOSSIER
+  MESURE_SPECIFIQUE
+}
+
+enum CabinetActionAudit {
+  CREATION
+  MODIFICATION
+  SUPPRESSION
+  CONSULTATION
+}
+
+enum CabinetConnecteurSens {
+  IMPORT
+  EXPORT
+  BIDIRECTIONNEL
+}
+
+enum CabinetConnecteurFormat {
+  CSV
+  XLSX
+  JSON
+  XML
+  API_REST
+}
+
+enum CabinetJobStatut {
+  EN_COURS
+  TERMINE
+  TERMINE_AVEC_ERREURS
+  ECHEC
+}
+
+// ----------------------------------------------------
+// GROUPE A : PORTEFEUILLE CLIENTS ET MANDATS
+// ----------------------------------------------------
+
+model CabinetEntite {
+  id                      String                  @id @default(uuid())
+  tenantId                String                  @unique @map("tenant_id")
+  raisonSociale           String                  @map("raison_sociale")
+  numeroInscriptionOrdre  String?                 @map("numero_inscription_ordre")
+  paysCode                String                  @default("BJ") @map("pays_code")
+  adresse                 String?                 @map("adresse")
+  telephone               String?                 @map("telephone")
+  emailContact            String?                 @map("email_contact")
+  createdAt               DateTime                @default(now()) @map("created_at")
+  updatedAt               DateTime                @updatedAt @map("updated_at")
+  isDeleted               Boolean                 @default(false) @map("is_deleted")
+
+  mandats                 CabinetClientMandat[]
+  collaborateurs          CabinetCollaborateur[]
+  checklists              CabinetChecklistControle[]
+  circuitsValidation      CabinetCircuitValidation[]
+
+  @@map("cabinet_entite")
+}
+
+model CabinetClientMandat {
+  id                          String                        @id @default(uuid())
+  cabinetEntiteId             String                        @map("cabinet_entite_id")
+  clientTenantId              String                        @map("client_tenant_id")
+  typeMandat                  CabinetTypeMandat             @map("type_mandat")
+  dateDebut                   DateTime                      @map("date_debut")
+  dateFin                     DateTime?                     @map("date_fin")
+  statut                      CabinetStatutMandat           @default(ACTIF) @map("statut")
+  collaborateurResponsableId  String?                       @map("collaborateur_responsable_id")
+  createdAt                   DateTime                      @default(now()) @map("created_at")
+  updatedAt                   DateTime                      @updatedAt @map("updated_at")
+  isDeleted                   Boolean                       @default(false) @map("is_deleted")
+
+  cabinetEntite               CabinetEntite                 @relation(fields: [cabinetEntiteId], references: [id], onDelete: Cascade)
+  collaborateurResponsable    CabinetCollaborateur?         @relation("MandatResponsable", fields: [collaborateurResponsableId], references: [id])
+  lettresMission              CabinetLettreMission[]
+  contactsClient              CabinetClientContact[]
+  habilitations               CabinetHabilitationClient[]
+  missions                    CabinetMission[]
+  echeancesConsolidees        CabinetEcheanceConsolidee[]
+  pointsRevue                 CabinetPointRevue[]
+  notesHonoraires             CabinetNoteHonoraires[]
+  demandesPiece               CabinetDemandePiece[]
+  messages                    CabinetMessage[]
+  documentsPartages           CabinetDocumentPartage[]
+  conflitsInteret             CabinetConflitInteretDeclaration[]
+  journauxAcces               CabinetJournalAccesConfidentialite[]
+
+  @@index([cabinetEntiteId, clientTenantId])
+  @@index([clientTenantId, statut])
+  @@map("cabinet_client_mandat")
+}
+
+model CabinetLettreMission {
+  id                     String                        @id @default(uuid())
+  cabinetClientMandatId  String                        @map("cabinet_client_mandat_id")
+  dateSignature          DateTime?                     @map("date_signature")
+  perimetreTexte         String                        @map("perimetre_texte")
+  honorairesConvenus     Float?                        @map("honoraires_convenus")
+  deviseCode             String                        @default("XOF") @map("devise_code")
+  periodiciteFacturation CabinetPeriodiciteFacturation @default(MENSUELLE) @map("periodicite_facturation")
+  documentUrl            String?                       @map("document_url")
+  statut                 CabinetStatutLettreMission    @default(BROUILLON) @map("statut")
+  createdAt              DateTime                      @default(now()) @map("created_at")
+  updatedAt              DateTime                      @updatedAt @map("updated_at")
+  isDeleted              Boolean                       @default(false) @map("is_deleted")
+
+  mandat                 CabinetClientMandat           @relation(fields: [cabinetClientMandatId], references: [id], onDelete: Cascade)
+
+  @@index([cabinetClientMandatId, statut])
+  @@map("cabinet_lettre_mission")
+}
+
+model CabinetClientContact {
+  id                     String                    @id @default(uuid())
+  cabinetClientMandatId  String                    @map("cabinet_client_mandat_id")
+  nomPrenoms             String                    @map("nom_prenoms")
+  fonction               String?                   @map("fonction")
+  email                  String?                   @map("email")
+  telephone              String?                   @map("telephone")
+  contactPrincipal       Boolean                   @default(false) @map("contact_principal")
+  createdAt              DateTime                  @default(now()) @map("created_at")
+  updatedAt              DateTime                  @updatedAt @map("updated_at")
+  isDeleted              Boolean                   @default(false) @map("is_deleted")
+
+  mandat                 CabinetClientMandat       @relation(fields: [cabinetClientMandatId], references: [id], onDelete: Cascade)
+  signatures             CabinetSignatureElectronique[]
+
+  @@index([cabinetClientMandatId])
+  @@map("cabinet_client_contact")
+}
+
+// ----------------------------------------------------
+// GROUPE B : COLLABORATEURS ET HABILITATIONS DU CABINET
+// ----------------------------------------------------
+
+model CabinetRole {
+  id                       String                    @id @default(uuid())
+  code                     String                    @unique @map("code")
+  libelle                  String                    @map("libelle")
+  niveauHabilitationDefaut CabinetNiveauHabilitation @default(CONSULTATION) @map("niveau_habilitation_defaut")
+  createdAt                DateTime                  @default(now()) @map("created_at")
+  updatedAt                DateTime                  @updatedAt @map("updated_at")
+  isDeleted                Boolean                   @default(false) @map("is_deleted")
+
+  collaborateurs           CabinetCollaborateur[]
+
+  @@map("cabinet_role")
+}
+
+model CabinetCollaborateur {
+  id                        String                        @id @default(uuid())
+  cabinetEntiteId           String                        @map("cabinet_entite_id")
+  userId                    String?                       @map("user_id")
+  nomPrenoms                String                        @map("nom_prenoms")
+  roleId                    String                        @map("role_id")
+  numeroOrdreProfessionnel  String?                       @map("numero_ordre_professionnel")
+  email                     String                        @map("email")
+  telephone                 String?                       @map("telephone")
+  statut                    CabinetStatutCollaborateur    @default(ACTIF) @map("statut")
+  createdAt                 DateTime                      @default(now()) @map("created_at")
+  updatedAt                 DateTime                      @updatedAt @map("updated_at")
+  isDeleted                 Boolean                       @default(false) @map("is_deleted")
+
+  cabinetEntite             CabinetEntite                 @relation(fields: [cabinetEntiteId], references: [id], onDelete: Cascade)
+  role                      CabinetRole                   @relation(fields: [roleId], references: [id])
+  mandatsResponsable        CabinetClientMandat[]         @relation("MandatResponsable")
+  habilitations             CabinetHabilitationClient[]
+  taches                    CabinetTache[]
+  pointsRevue               CabinetPointRevue[]
+  checklistsControlees      CabinetChecklistItemResultat[]
+  validations               CabinetValidation[]
+  signatures                CabinetSignatureElectronique[]
+  tempsPasses               CabinetTempsPasse[]
+  conflitsInteretDeclares   CabinetConflitInteretDeclaration[] @relation("ConflitDeclarant")
+  conflitsInteretDecides    CabinetConflitInteretDeclaration[] @relation("ConflitDecideur")
+  journauxAcces             CabinetJournalAccesConfidentialite[]
+
+  @@index([cabinetEntiteId, email])
+  @@map("cabinet_collaborateur")
+}
+
+model CabinetHabilitationClient {
+  id                    String                    @id @default(uuid())
+  collaborateurId       String                    @map("collaborateur_id")
+  cabinetClientMandatId String                    @map("cabinet_client_mandat_id")
+  niveauAcces           CabinetNiveauHabilitation @default(CONSULTATION) @map("niveau_acces")
+  dateDebut             DateTime                  @default(now()) @map("date_debut")
+  dateFin               DateTime?                 @map("date_fin")
+  createdAt             DateTime                  @default(now()) @map("created_at")
+  updatedAt             DateTime                  @updatedAt @map("updated_at")
+  isDeleted             Boolean                   @default(false) @map("is_deleted")
+
+  collaborateur         CabinetCollaborateur      @relation(fields: [collaborateurId], references: [id], onDelete: Cascade)
+  mandat                CabinetClientMandat       @relation(fields: [cabinetClientMandatId], references: [id], onDelete: Cascade)
+  journauxAcces         CabinetJournalAccesConfidentialite[]
+
+  @@unique([collaborateurId, cabinetClientMandatId])
+  @@index([cabinetClientMandatId, niveauAcces])
+  @@map("cabinet_habilitation_client")
+}
+
+// ----------------------------------------------------
+// GROUPE C : MISSIONS ET PLANIFICATION
+// ----------------------------------------------------
+
+model CabinetMission {
+  id                     String                    @id @default(uuid())
+  cabinetClientMandatId  String                    @map("cabinet_client_mandat_id")
+  libelle                String                    @map("libelle")
+  typeMission            CabinetTypeMission        @default(RECURRENTE) @map("type_mission")
+  periodeReference       String?                   @map("periode_reference")
+  dateEcheance           DateTime?                 @map("date_echeance")
+  statut                 CabinetStatutMission      @default(PLANIFIEE) @map("statut")
+  createdAt              DateTime                  @default(now()) @map("created_at")
+  updatedAt              DateTime                  @updatedAt @map("updated_at")
+  isDeleted              Boolean                   @default(false) @map("is_deleted")
+
+  mandat                 CabinetClientMandat       @relation(fields: [cabinetClientMandatId], references: [id], onDelete: Cascade)
+  taches                 CabinetTache[]
+  echeancesConsolidees   CabinetEcheanceConsolidee[]
+  checklistsResultats    CabinetChecklistItemResultat[]
+  tempsPasses            CabinetTempsPasse[]
+  demandesPiece          CabinetDemandePiece[]
+
+  @@index([cabinetClientMandatId, statut])
+  @@map("cabinet_mission")
+}
+
+model CabinetTache {
+  id                      String               @id @default(uuid())
+  cabinetMissionId        String               @map("cabinet_mission_id")
+  libelle                 String               @map("libelle")
+  collaborateurAssigneId  String?              @map("collaborateur_assigne_id")
+  dateEcheance            DateTime?            @map("date_echeance")
+  statut                  CabinetStatutTache   @default(A_FAIRE) @map("statut")
+  createdAt               DateTime             @default(now()) @map("created_at")
+  updatedAt               DateTime             @updatedAt @map("updated_at")
+  isDeleted               Boolean              @default(false) @map("is_deleted")
+
+  mission                 CabinetMission       @relation(fields: [cabinetMissionId], references: [id], onDelete: Cascade)
+  collaborateurAssigne    CabinetCollaborateur? @relation(fields: [collaborateurAssigneId], references: [id])
+
+  @@index([cabinetMissionId, statut])
+  @@index([collaborateurAssigneId, statut])
+  @@map("cabinet_tache")
+}
+
+model CabinetEcheanceConsolidee {
+  id                     String                @id @default(uuid())
+  cabinetClientMandatId  String                @map("cabinet_client_mandat_id")
+  referenceEcheanceM7    String?               @map("reference_echeance_m7")
+  cabinetMissionId       String?               @map("cabinet_mission_id")
+  libelle                String                @map("libelle")
+  dateLimite             DateTime              @map("date_limite")
+  statut                 CabinetStatutEcheance @default(A_VENIR) @map("statut")
+  createdAt              DateTime              @default(now()) @map("created_at")
+  updatedAt              DateTime              @updatedAt @map("updated_at")
+  isDeleted              Boolean               @default(false) @map("is_deleted")
+
+  mandat                 CabinetClientMandat   @relation(fields: [cabinetClientMandatId], references: [id], onDelete: Cascade)
+  mission                CabinetMission?       @relation(fields: [cabinetMissionId], references: [id])
+
+  @@index([cabinetClientMandatId, dateLimite, statut])
+  @@map("cabinet_echeance_consolidee")
+}
+
+// ----------------------------------------------------
+// GROUPE D : SUPERVISION ET REVUE TRANSVERSE
+// ----------------------------------------------------
+
+model CabinetPointRevue {
+  id                     String                  @id @default(uuid())
+  cabinetClientMandatId  String                  @map("cabinet_client_mandat_id")
+  moduleSource           CabinetModuleSource     @map("module_source")
+  objetType              String                  @map("objet_type")
+  objetId                String                  @map("objet_id")
+  auteurCollaborateurId  String                  @map("auteur_collaborateur_id")
+  texte                  String                  @map("texte")
+  niveau                 CabinetNiveauSeverite   @default(INFORMATION) @map("niveau")
+  statut                 CabinetStatutPointRevue @default(OUVERT) @map("statut")
+  dateCreation           DateTime                @default(now()) @map("date_creation")
+  createdAt              DateTime                @default(now()) @map("created_at")
+  updatedAt              DateTime                @updatedAt @map("updated_at")
+  isDeleted              Boolean                 @default(false) @map("is_deleted")
+
+  mandat                 CabinetClientMandat     @relation(fields: [cabinetClientMandatId], references: [id], onDelete: Cascade)
+  auteur                 CabinetCollaborateur    @relation(fields: [auteurCollaborateurId], references: [id])
+
+  @@index([cabinetClientMandatId, moduleSource, statut])
+  @@index([objetType, objetId])
+  @@map("cabinet_point_revue")
+}
+
+model CabinetChecklistControle {
+  id                  String                         @id @default(uuid())
+  cabinetEntiteId     String                         @map("cabinet_entite_id")
+  typeMissionCible    String                         @map("type_mission_cible")
+  libelle             String                         @map("libelle")
+  items               Json                           @map("items")
+  version             String                         @default("1.0") @map("version")
+  actif               Boolean                        @default(true) @map("actif")
+  createdAt           DateTime                       @default(now()) @map("created_at")
+  updatedAt           DateTime                       @updatedAt @map("updated_at")
+  isDeleted           Boolean                        @default(false) @map("is_deleted")
+
+  cabinetEntite       CabinetEntite                  @relation(fields: [cabinetEntiteId], references: [id], onDelete: Cascade)
+  resultats           CabinetChecklistItemResultat[]
+
+  @@index([cabinetEntiteId, typeMissionCible, actif])
+  @@map("cabinet_checklist_controle")
+}
+
+model CabinetChecklistItemResultat {
+  id                          String                     @id @default(uuid())
+  cabinetMissionId            String                     @map("cabinet_mission_id")
+  cabinetChecklistControleId  String                     @map("cabinet_checklist_controle_id")
+  itemLibelle                 String                     @map("item_libelle")
+  statut                      CabinetStatutChecklistItem @default(NON_CONTROLE) @map("statut")
+  controleParCollaborateurId  String?                    @map("controle_par_collaborateur_id")
+  commentaire                 String?                    @map("commentaire")
+  createdAt                   DateTime                   @default(now()) @map("created_at")
+  updatedAt                   DateTime                   @updatedAt @map("updated_at")
+  isDeleted                   Boolean                    @default(false) @map("is_deleted")
+
+  mission                     CabinetMission             @relation(fields: [cabinetMissionId], references: [id], onDelete: Cascade)
+  checklistControle           CabinetChecklistControle   @relation(fields: [cabinetChecklistControleId], references: [id], onDelete: Cascade)
+  controlePar                 CabinetCollaborateur?      @relation(fields: [controleParCollaborateurId], references: [id])
+
+  @@index([cabinetMissionId, cabinetChecklistControleId])
+  @@map("cabinet_checklist_item_resultat")
+}
+
+// ----------------------------------------------------
+// GROUPE E : VALIDATION ET SIGNATURE ÉLECTRONIQUE
+// ----------------------------------------------------
+
+model CabinetCircuitValidation {
+  id                String              @id @default(uuid())
+  cabinetEntiteId   String              @map("cabinet_entite_id")
+  typeObjetCible    String              @map("type_objet_cible")
+  etapes            Json                @map("etapes")
+  actif             Boolean             @default(true) @map("actif")
+  createdAt         DateTime            @default(now()) @map("created_at")
+  updatedAt         DateTime            @updatedAt @map("updated_at")
+  isDeleted         Boolean             @default(false) @map("is_deleted")
+
+  cabinetEntite     CabinetEntite       @relation(fields: [cabinetEntiteId], references: [id], onDelete: Cascade)
+  validations       CabinetValidation[]
+
+  @@index([cabinetEntiteId, typeObjetCible, actif])
+  @@map("cabinet_circuit_validation")
+}
+
+model CabinetValidation {
+  id                          String                    @id @default(uuid())
+  cabinetCircuitValidationId  String                    @map("cabinet_circuit_validation_id")
+  objetType                   String                    @map("objet_type")
+  objetId                     String                    @map("objet_id")
+  etapeOrdre                  Int                       @map("etape_ordre")
+  collaborateurId             String                    @map("collaborateur_id")
+  decision                    CabinetDecisionValidation @map("decision")
+  commentaire                 String?                   @map("commentaire")
+  dateDecision                DateTime                  @default(now()) @map("date_decision")
+  createdAt                   DateTime                  @default(now()) @map("created_at")
+  updatedAt                   DateTime                  @updatedAt @map("updated_at")
+  isDeleted                   Boolean                   @default(false) @map("is_deleted")
+
+  circuitValidation           CabinetCircuitValidation  @relation(fields: [cabinetCircuitValidationId], references: [id], onDelete: Cascade)
+  collaborateur               CabinetCollaborateur      @relation(fields: [collaborateurId], references: [id])
+
+  @@index([objetType, objetId])
+  @@index([collaborateurId, decision])
+  @@map("cabinet_validation")
+}
+
+model CabinetSignatureElectronique {
+  id                          String                   @id @default(uuid())
+  objetType                   String                   @map("objet_type")
+  objetId                     String                   @map("objet_id")
+  signataireCollaborateurId   String?                  @map("signataire_collaborateur_id")
+  signataireClientContactId   String?                  @map("signataire_client_contact_id")
+  methodeSignature            CabinetMethodeSignature  @default(SIGNATURE_ELECTRONIQUE_SIMPLE) @map("methode_signature")
+  empreinteDocument           String                   @map("empreinte_document")
+  dateSignature               DateTime                 @default(now()) @map("date_signature")
+  adresseIpSignataire         String?                  @map("adresse_ip_signataire")
+  createdAt                   DateTime                 @default(now()) @map("created_at")
+  updatedAt                   DateTime                 @updatedAt @map("updated_at")
+  isDeleted                   Boolean                  @default(false) @map("is_deleted")
+
+  signataireCollaborateur     CabinetCollaborateur?    @relation(fields: [signataireCollaborateurId], references: [id])
+  signataireClientContact     CabinetClientContact?    @relation(fields: [signataireClientContactId], references: [id])
+
+  @@index([objetType, objetId])
+  @@map("cabinet_signature_electronique")
+}
+
+// ----------------------------------------------------
+// GROUPE F : TEMPS PASSÉ ET HONORAIRES DU CABINET
+// ----------------------------------------------------
+
+model CabinetTempsPasse {
+  id                String               @id @default(uuid())
+  collaborateurId   String               @map("collaborateur_id")
+  cabinetMissionId  String               @map("cabinet_mission_id")
+  datePrestation    DateTime             @map("date_prestation")
+  dureeHeures       Float                @map("duree_heures")
+  description       String?              @map("description")
+  facturable        Boolean              @default(true) @map("facturable")
+  createdAt         DateTime             @default(now()) @map("created_at")
+  updatedAt         DateTime             @updatedAt @map("updated_at")
+  isDeleted         Boolean              @default(false) @map("is_deleted")
+
+  collaborateur     CabinetCollaborateur @relation(fields: [collaborateurId], references: [id], onDelete: Cascade)
+  mission           CabinetMission       @relation(fields: [cabinetMissionId], references: [id], onDelete: Cascade)
+
+  @@index([collaborateurId, datePrestation])
+  @@index([cabinetMissionId, facturable])
+  @@map("cabinet_temps_passe")
+}
+
+model CabinetNoteHonoraires {
+  id                     String                      @id @default(uuid())
+  cabinetClientMandatId  String                      @map("cabinet_client_mandat_id")
+  numero                 String                      @unique @map("numero")
+  dateEmission           DateTime                    @map("date_emission")
+  montantTotalHt         Float                       @map("montant_total_ht")
+  montantTva             Float                       @default(0) @map("montant_tva")
+  montantTotalTtc        Float                       @map("montant_total_ttc")
+  deviseCode             String                      @default("XOF") @map("devise_code")
+  statut                 CabinetStatutNoteHonoraires @default(BROUILLON) @map("statut")
+  createdAt              DateTime                    @default(now()) @map("created_at")
+  updatedAt              DateTime                    @updatedAt @map("updated_at")
+  isDeleted              Boolean                     @default(false) @map("is_deleted")
+
+  mandat                 CabinetClientMandat         @relation(fields: [cabinetClientMandatId], references: [id], onDelete: Cascade)
+  lignes                 CabinetNoteHonorairesLigne[]
+
+  @@index([cabinetClientMandatId, statut])
+  @@map("cabinet_note_honoraires")
+}
+
+model CabinetNoteHonorairesLigne {
+  id                      String                @id @default(uuid())
+  cabinetNoteHonorairesId String                @map("cabinet_note_honoraires_id")
+  libelle                 String                @map("libelle")
+  quantite                Float?                @map("quantite")
+  prixUnitaire            Float?                @map("prix_unitaire")
+  montant                 Float                 @map("montant")
+  createdAt               DateTime              @default(now()) @map("created_at")
+  updatedAt               DateTime              @updatedAt @map("updated_at")
+  isDeleted               Boolean               @default(false) @map("is_deleted")
+
+  noteHonoraires          CabinetNoteHonoraires @relation(fields: [cabinetNoteHonorairesId], references: [id], onDelete: Cascade)
+
+  @@index([cabinetNoteHonorairesId])
+  @@map("cabinet_note_honoraires_ligne")
+}
+
+// ----------------------------------------------------
+// GROUPE G : COMMUNICATION ET PORTAIL CLIENT
+// ----------------------------------------------------
+
+model CabinetDemandePiece {
+  id                     String                    @id @default(uuid())
+  cabinetClientMandatId  String                    @map("cabinet_client_mandat_id")
+  cabinetMissionId       String?                   @map("cabinet_mission_id")
+  libelle                String                    @map("libelle")
+  dateDemande            DateTime                  @default(now()) @map("date_demande")
+  dateLimiteReponse      DateTime?                 @map("date_limite_reponse")
+  statut                 CabinetStatutDemandePiece @default(EN_ATTENTE) @map("statut")
+  createdAt              DateTime                  @default(now()) @map("created_at")
+  updatedAt              DateTime                  @updatedAt @map("updated_at")
+  isDeleted              Boolean                   @default(false) @map("is_deleted")
+
+  mandat                 CabinetClientMandat       @relation(fields: [cabinetClientMandatId], references: [id], onDelete: Cascade)
+  mission                CabinetMission?           @relation(fields: [cabinetMissionId], references: [id])
+
+  @@index([cabinetClientMandatId, statut])
+  @@map("cabinet_demande_piece")
+}
+
+model CabinetMessage {
+  id                     String               @id @default(uuid())
+  cabinetClientMandatId  String               @map("cabinet_client_mandat_id")
+  auteurType             CabinetAuteurMessage @map("auteur_type")
+  auteurId               String               @map("auteur_id")
+  auteurNom              String?              @map("auteur_nom")
+  contenu                String               @map("contenu")
+  dateEnvoi              DateTime             @default(now()) @map("date_envoi")
+  lu                     Boolean              @default(false) @map("lu")
+  createdAt              DateTime             @default(now()) @map("created_at")
+  updatedAt              DateTime             @updatedAt @map("updated_at")
+  isDeleted              Boolean              @default(false) @map("is_deleted")
+
+  mandat                 CabinetClientMandat  @relation(fields: [cabinetClientMandatId], references: [id], onDelete: Cascade)
+
+  @@index([cabinetClientMandatId, dateEnvoi])
+  @@map("cabinet_message")
+}
+
+model CabinetDocumentPartage {
+  id                     String               @id @default(uuid())
+  cabinetClientMandatId  String               @map("cabinet_client_mandat_id")
+  deposeParType          CabinetDeposeParType @map("depose_par_type")
+  deposeParNom           String?              @map("depose_par_nom")
+  fichierUrl             String               @map("fichier_url")
+  libelle                String               @map("libelle")
+  tailleOctets           Int?                 @map("taille_octets")
+  dateDepot              DateTime             @default(now()) @map("date_depot")
+  createdAt              DateTime             @default(now()) @map("created_at")
+  updatedAt              DateTime             @updatedAt @map("updated_at")
+  isDeleted              Boolean              @default(false) @map("is_deleted")
+
+  mandat                 CabinetClientMandat  @relation(fields: [cabinetClientMandatId], references: [id], onDelete: Cascade)
+
+  @@index([cabinetClientMandatId, dateDepot])
+  @@map("cabinet_document_partage")
+}
+
+// ----------------------------------------------------
+// GROUPE H : DÉONTOLOGIE, CONFIDENTIALITÉ ET SÉCURITÉ
+// ----------------------------------------------------
+
+model CabinetConflitInteretDeclaration {
+  id                          String                 @id @default(uuid())
+  collaborateurId             String                 @map("collaborateur_id")
+  cabinetClientMandatId       String                 @map("cabinet_client_mandat_id")
+  natureConflit               String                 @map("nature_conflit")
+  dateDeclaration             DateTime               @default(now()) @map("date_declaration")
+  decision                    CabinetDecisionConflit @default(AUCUNE_ACTION) @map("decision")
+  decideeParCollaborateurId   String?                @map("decidee_par_collaborateur_id")
+  commentaireDecision         String?                @map("commentaire_decision")
+  createdAt                   DateTime               @default(now()) @map("created_at")
+  updatedAt                   DateTime               @updatedAt @map("updated_at")
+  isDeleted                   Boolean                @default(false) @map("is_deleted")
+
+  collaborateur               CabinetCollaborateur   @relation("ConflitDeclarant", fields: [collaborateurId], references: [id], onDelete: Cascade)
+  mandat                      CabinetClientMandat    @relation(fields: [cabinetClientMandatId], references: [id], onDelete: Cascade)
+  decideur                    CabinetCollaborateur?  @relation("ConflitDecideur", fields: [decideeParCollaborateurId], references: [id])
+
+  @@index([collaborateurId, cabinetClientMandatId])
+  @@map("cabinet_conflit_interet_declaration")
+}
+
+model CabinetJournalAccesConfidentialite {
+  id                     String                    @id @default(uuid())
+  collaborateurId        String                    @map("collaborateur_id")
+  cabinetClientMandatId  String                    @map("cabinet_client_mandat_id")
+  habilitationUtiliseeId String                    @map("habilitation_utilisee_id")
+  moduleConsulte         String                    @map("module_consulte")
+  actionRealisee         String?                   @map("action_realisee")
+  dateAcces              DateTime                  @default(now()) @map("date_acces")
+  createdAt              DateTime                  @default(now()) @map("created_at")
+  updatedAt              DateTime                  @updatedAt @map("updated_at")
+  isDeleted              Boolean                   @default(false) @map("is_deleted")
+
+  collaborateur          CabinetCollaborateur      @relation(fields: [collaborateurId], references: [id], onDelete: Cascade)
+  mandat                 CabinetClientMandat       @relation(fields: [cabinetClientMandatId], references: [id], onDelete: Cascade)
+  habilitation           CabinetHabilitationClient @relation(fields: [habilitationUtiliseeId], references: [id], onDelete: Cascade)
+
+  @@index([collaborateurId, cabinetClientMandatId, dateAcces])
+  @@map("cabinet_journal_acces_confidentialite")
+}
+
+model CabinetJournalAudit {
+  id                String             @id @default(uuid())
+  cabinetEntiteId   String?            @map("cabinet_entite_id")
+  tableCible        String             @map("table_cible")
+  enregistrementId  String             @map("enregistrement_id")
+  action            CabinetActionAudit @map("action")
+  utilisateurId     String             @map("utilisateur_id")
+  valeurAvant       Json?              @map("valeur_avant")
+  valeurApres       Json?              @map("valeur_apres")
+  dateAction        DateTime           @default(now()) @map("date_action")
+  createdAt         DateTime           @default(now()) @map("created_at")
+  updatedAt         DateTime           @updatedAt @map("updated_at")
+  isDeleted         Boolean            @default(false) @map("is_deleted")
+
+  @@index([cabinetEntiteId, tableCible, dateAction])
+  @@index([enregistrementId])
+  @@map("cabinet_journal_audit")
+}
+
+// ----------------------------------------------------
+// GROUPE I : IMPORT / EXPORT DU CABINET
+// ----------------------------------------------------
+
+model CabinetConnecteurEchange {
+  id                  String                  @id @default(uuid())
+  code                String                  @unique @map("code")
+  libelle             String                  @map("libelle")
+  sens                CabinetConnecteurSens   @map("sens")
+  format              CabinetConnecteurFormat @map("format")
+  systemeTiersLibelle String?                 @map("systeme_tiers_libelle")
+  actif               Boolean                 @default(true) @map("actif")
+  createdAt           DateTime                @default(now()) @map("created_at")
+  updatedAt           DateTime                @updatedAt @map("updated_at")
+  isDeleted           Boolean                 @default(false) @map("is_deleted")
+
+  mappings            CabinetMappingChamp[]
+  jobs                CabinetJobImportExport[]
+
+  @@map("cabinet_connecteur_echange")
+}
+
+model CabinetMappingChamp {
+  id                          String                   @id @default(uuid())
+  cabinetConnecteurEchangeId  String                   @map("cabinet_connecteur_echange_id")
+  champSource                 String                   @map("champ_source")
+  champCibleNexera            String                   @map("champ_cible_nexera")
+  regleTransformation         Json?                    @map("regle_transformation")
+  obligatoire                 Boolean                  @default(false) @map("obligatoire")
+  createdAt                   DateTime                 @default(now()) @map("created_at")
+  updatedAt                   DateTime                 @updatedAt @map("updated_at")
+  isDeleted                   Boolean                  @default(false) @map("is_deleted")
+
+  connecteur                  CabinetConnecteurEchange @relation(fields: [cabinetConnecteurEchangeId], references: [id], onDelete: Cascade)
+
+  @@index([cabinetConnecteurEchangeId])
+  @@map("cabinet_mapping_champ")
+}
+
+model CabinetJobImportExport {
+  id                          String                   @id @default(uuid())
+  tenantId                    String                   @map("tenant_id")
+  cabinetConnecteurEchangeId  String                   @map("cabinet_connecteur_echange_id")
+  sens                        CabinetConnecteurSens    @map("sens")
+  statut                      CabinetJobStatut         @default(EN_COURS) @map("statut")
+  nombreLignesTraitees        Int                      @default(0) @map("nombre_lignes_traitees")
+  nombreSucces                Int                      @default(0) @map("nombre_succes")
+  nombreErreurs               Int                      @default(0) @map("nombre_erreurs")
+  logErreurs                  Json?                    @map("log_erreurs")
+  dateExecution               DateTime                 @default(now()) @map("date_execution")
+  createdAt                   DateTime                 @default(now()) @map("created_at")
+  updatedAt                   DateTime                 @updatedAt @map("updated_at")
+  isDeleted                   Boolean                  @default(false) @map("is_deleted")
+
+  connecteur                  CabinetConnecteurEchange @relation(fields: [cabinetConnecteurEchangeId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, statut])
+  @@map("cabinet_job_import_export")
+}
+
