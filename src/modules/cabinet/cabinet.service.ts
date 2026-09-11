@@ -140,13 +140,54 @@ export class CabinetService {
       },
       orderBy: { createdAt: 'desc' },
     });
-    return links.map((link) => ({
-      id: link.cabinetTenant.id,
-      name: link.cabinetTenant.name,
-      type: link.cabinetTenant.type,
-      linkedAt: link.createdAt,
-      permissions: normalizeCabinetLinkPermissions(link.permissions),
-    }));
+
+    const cabinetTenantIds = links.map((link) => link.cabinetTenantId);
+    const [cabinetEntites, cabinetSettings] = await Promise.all([
+      this.prisma.cabinetEntite.findMany({
+        where: { tenantId: { in: cabinetTenantIds }, isDeleted: false },
+      }),
+      this.prisma.tenantSettings.findMany({
+        where: { tenantId: { in: cabinetTenantIds } },
+      }),
+    ]);
+
+    const entiteByTenant = new Map(cabinetEntites.map((e) => [e.tenantId, e]));
+    const settingsByTenant = new Map(cabinetSettings.map((s) => [s.tenantId, s]));
+
+    return links.map((link) => {
+      const entite = entiteByTenant.get(link.cabinetTenantId);
+      const settings = settingsByTenant.get(link.cabinetTenantId);
+
+      const addressString =
+        entite?.adresse ||
+        (settings?.companyAddress && typeof settings.companyAddress === 'object'
+          ? [
+              (settings.companyAddress as any).street,
+              (settings.companyAddress as any).postalCode,
+              (settings.companyAddress as any).city,
+              (settings.companyAddress as any).country,
+            ]
+              .filter(Boolean)
+              .join(', ')
+          : (settings?.companyAddress as string) || null);
+
+      return {
+        id: link.cabinetTenant.id,
+        name: entite?.raisonSociale || settings?.legalName || link.cabinetTenant.name,
+        type: link.cabinetTenant.type,
+        linkedAt: link.createdAt,
+        permissions: normalizeCabinetLinkPermissions(link.permissions),
+        details: {
+          raisonSociale: entite?.raisonSociale || settings?.legalName || link.cabinetTenant.name,
+          email: entite?.emailContact || settings?.companyEmail || null,
+          telephone: entite?.telephone || settings?.companyPhone || null,
+          adresse: addressString || null,
+          numeroInscriptionOrdre: entite?.numeroInscriptionOrdre || null,
+          paysCode: entite?.paysCode || 'BJ',
+          siret: settings?.siret || null,
+        },
+      };
+    });
   }
 
   async grantAccess(
@@ -299,6 +340,89 @@ export class CabinetService {
     return { items, total, page, limit };
   }
 
+  async listCompanyPayments(
+    cabinetTenantId: string,
+    companyTenantId: string,
+    page = 1,
+    limit = 50,
+  ) {
+    await this.assertCabinetAccess(
+      cabinetTenantId,
+      companyTenantId,
+      CABINET_SCOPE_PERMISSIONS.PAYMENTS_READ,
+    );
+
+    const skip = (page - 1) * limit;
+    const [items, total] = await Promise.all([
+      this.prisma.payment.findMany({
+        where: { tenantId: companyTenantId },
+        orderBy: { paymentDate: 'desc' },
+        skip,
+        take: limit,
+        include: {
+          client: { select: { id: true, companyName: true } },
+          imputations: {
+            include: {
+              invoice: { select: { id: true, number: true } },
+            },
+            orderBy: { createdAt: 'asc' },
+          },
+        },
+      }),
+      this.prisma.payment.count({ where: { tenantId: companyTenantId } }),
+    ]);
+
+    return { items, total, page, limit };
+  }
+
+  async listCompanyClients(
+    cabinetTenantId: string,
+    companyTenantId: string,
+    page = 1,
+    limit = 50,
+  ) {
+    await this.assertCabinetAccess(
+      cabinetTenantId,
+      companyTenantId,
+      CABINET_SCOPE_PERMISSIONS.CLIENTS_READ,
+    );
+
+    const skip = (page - 1) * limit;
+    const [items, total] = await Promise.all([
+      this.prisma.client.findMany({
+        where: { tenantId: companyTenantId, deletedAt: null },
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take: limit,
+        include: {
+          contacts: {
+            where: { isPrimary: true },
+            take: 1,
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              email: true,
+              phone: true,
+              isPrimary: true,
+            },
+          },
+          _count: {
+            select: {
+              invoices: true,
+              payments: true,
+            },
+          },
+        },
+      }),
+      this.prisma.client.count({
+        where: { tenantId: companyTenantId, deletedAt: null },
+      }),
+    ]);
+
+    return { items, total, page, limit };
+  }
+
   private async assertCabinetAccess(
     cabinetTenantId: string,
     companyTenantId: string,
@@ -322,6 +446,15 @@ export class CabinetService {
         requiredPermission,
       )
     ) {
+      if (requiredPermission === CABINET_SCOPE_PERMISSIONS.INVOICES_READ) {
+        throw new ForbiddenException(CabinetMessages.SCOPE_INVOICES_DENIED);
+      }
+      if (requiredPermission === CABINET_SCOPE_PERMISSIONS.PAYMENTS_READ) {
+        throw new ForbiddenException(CabinetMessages.SCOPE_PAYMENTS_DENIED);
+      }
+      if (requiredPermission === CABINET_SCOPE_PERMISSIONS.CLIENTS_READ) {
+        throw new ForbiddenException(CabinetMessages.SCOPE_CLIENTS_DENIED);
+      }
       throw new ForbiddenException(CabinetMessages.SCOPE_INVOICES_DENIED);
     }
 

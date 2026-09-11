@@ -36,6 +36,8 @@ import {
   AuthorizedCabinetDto,
   CabinetAccessMessageDto,
   CabinetCompanyInvoicesPageDto,
+  CabinetCompanyPaymentsPageDto,
+  CabinetCompanyClientsPageDto,
   CompanyTenantSummaryDto,
 } from './dto/cabinet-response.dto';
 import { CabinetMessages } from './constants/cabinet-messages';
@@ -139,6 +141,80 @@ export class CabinetController {
   ) {
     const pagination = parsePagination(page, limit);
     return this.cabinetService.listCompanyInvoices(
+      req.user.tenantId,
+      companyTenantId,
+      pagination.page,
+      pagination.limit,
+    );
+  }
+
+  @Get('companies/:companyTenantId/payments')
+  @Permissions('cabinet.read')
+  @ApiOperation({
+    summary: "Encaissements d'une entreprise cliente (lecture cabinet)",
+    description:
+      "Consulte les paiements reçus d'un dossier entreprise précis. " +
+      "Vérifie que l'entreprise a autorisé la permission `cabinet.scope.payments.read`.",
+  })
+  @ApiParam({
+    name: 'companyTenantId',
+    format: 'uuid',
+    description: "Identifiant tenant de l'entreprise cliente",
+  })
+  @ApiQuery({ name: 'page', required: false, example: 1 })
+  @ApiQuery({ name: 'limit', required: false, example: 50 })
+  @ApiOkResponse({
+    description: "Encaissements paginés de l'entreprise sélectionnée",
+    type: CabinetCompanyPaymentsPageDto,
+  })
+  @ApiStandardErrors({
+    notFound: CabinetMessages.ACCESS_NOT_AUTHORIZED,
+  })
+  listPayments(
+    @Request() req: { user: { tenantId: string } },
+    @Param('companyTenantId') companyTenantId: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+  ) {
+    const pagination = parsePagination(page, limit);
+    return this.cabinetService.listCompanyPayments(
+      req.user.tenantId,
+      companyTenantId,
+      pagination.page,
+      pagination.limit,
+    );
+  }
+
+  @Get('companies/:companyTenantId/clients')
+  @Permissions('cabinet.read')
+  @ApiOperation({
+    summary: "Référentiel clients d'une entreprise cliente (lecture cabinet)",
+    description:
+      "Consulte les fiches clients d'un dossier entreprise précis. " +
+      "Vérifie que l'entreprise a autorisé la permission `cabinet.scope.clients.read`.",
+  })
+  @ApiParam({
+    name: 'companyTenantId',
+    format: 'uuid',
+    description: "Identifiant tenant de l'entreprise cliente",
+  })
+  @ApiQuery({ name: 'page', required: false, example: 1 })
+  @ApiQuery({ name: 'limit', required: false, example: 50 })
+  @ApiOkResponse({
+    description: "Clients paginés de l'entreprise sélectionnée",
+    type: CabinetCompanyClientsPageDto,
+  })
+  @ApiStandardErrors({
+    notFound: CabinetMessages.ACCESS_NOT_AUTHORIZED,
+  })
+  listClients(
+    @Request() req: { user: { tenantId: string } },
+    @Param('companyTenantId') companyTenantId: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+  ) {
+    const pagination = parsePagination(page, limit);
+    return this.cabinetService.listCompanyClients(
       req.user.tenantId,
       companyTenantId,
       pagination.page,

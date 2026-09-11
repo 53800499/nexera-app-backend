@@ -55,7 +55,7 @@ export class PortefeuilleService {
     dto: UpdateCabinetEntiteDto,
   ) {
     const entite = await this.getOrCreateCabinetEntite(cabinetTenantId);
-    return this.prisma.cabinetEntite.update({
+    const updated = await this.prisma.cabinetEntite.update({
       where: { id: entite.id },
       data: {
         ...(dto.raisonSociale && { raisonSociale: dto.raisonSociale }),
@@ -68,6 +68,34 @@ export class PortefeuilleService {
         ...(dto.emailContact !== undefined && { emailContact: dto.emailContact }),
       },
     });
+
+    await this.prisma.tenantSettings.upsert({
+      where: { tenantId: cabinetTenantId },
+      create: {
+        tenantId: cabinetTenantId,
+        legalName: dto.raisonSociale,
+        tradeName: dto.raisonSociale,
+        companyEmail: dto.emailContact,
+        companyPhone: dto.telephone,
+      },
+      update: {
+        ...(dto.raisonSociale && {
+          legalName: dto.raisonSociale,
+          tradeName: dto.raisonSociale,
+        }),
+        ...(dto.emailContact !== undefined && { companyEmail: dto.emailContact }),
+        ...(dto.telephone !== undefined && { companyPhone: dto.telephone }),
+      },
+    });
+
+    if (dto.raisonSociale) {
+      await this.prisma.tenant.update({
+        where: { id: cabinetTenantId },
+        data: { name: dto.raisonSociale },
+      });
+    }
+
+    return updated;
   }
 
   async listMandats(cabinetTenantId: string) {

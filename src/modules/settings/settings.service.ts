@@ -57,19 +57,91 @@ export class SettingsService {
   }
 
   async getTenantSettings(tenantId: string) {
-    return this.prisma.tenantSettings.upsert({
-      where: { tenantId },
-      create: { tenantId },
-      update: {},
-    });
+    const [tenant, settings] = await Promise.all([
+      this.prisma.tenant.findUnique({
+        where: { id: tenantId },
+        select: { type: true, name: true },
+      }),
+      this.prisma.tenantSettings.upsert({
+        where: { tenantId },
+        create: { tenantId },
+        update: {},
+      }),
+    ]);
+
+    if (tenant?.type === 'cabinet') {
+      const cabinetEntite = await this.prisma.cabinetEntite.findUnique({
+        where: { tenantId },
+      });
+
+      return {
+        ...settings,
+        legalName: settings.legalName || cabinetEntite?.raisonSociale || tenant.name,
+        tradeName: settings.tradeName || cabinetEntite?.raisonSociale || tenant.name,
+        companyEmail: settings.companyEmail || cabinetEntite?.emailContact || null,
+        companyPhone: settings.companyPhone || cabinetEntite?.telephone || null,
+        numeroInscriptionOrdre: cabinetEntite?.numeroInscriptionOrdre || null,
+        paysCode: cabinetEntite?.paysCode || 'BJ',
+      };
+    }
+
+    return settings;
   }
 
   async updateTenantSettings(tenantId: string, dto: UpdateTenantSettingsDto) {
-    return this.prisma.tenantSettings.upsert({
-      where: { tenantId },
-      create: { tenantId, ...dto },
-      update: dto,
+    const tenant = await this.prisma.tenant.findUnique({
+      where: { id: tenantId },
+      select: { type: true, name: true },
     });
+
+    const { numeroInscriptionOrdre, paysCode, ...settingsData } = dto;
+
+    await this.prisma.tenantSettings.upsert({
+      where: { tenantId },
+      create: { tenantId, ...settingsData },
+      update: settingsData,
+    });
+
+    if (tenant?.type === 'cabinet') {
+      const raisonSociale = dto.tradeName || dto.legalName;
+      let adresseStr: string | undefined = undefined;
+      if (dto.companyAddress) {
+        const addr = dto.companyAddress as Record<string, string>;
+        adresseStr = [addr.street, addr.postalCode, addr.city, addr.country]
+          .filter(Boolean)
+          .join(', ');
+      }
+
+      await this.prisma.cabinetEntite.upsert({
+        where: { tenantId },
+        create: {
+          tenantId,
+          raisonSociale: raisonSociale || tenant.name || 'Cabinet',
+          numeroInscriptionOrdre: numeroInscriptionOrdre || null,
+          paysCode: paysCode || 'BJ',
+          adresse: adresseStr || null,
+          telephone: dto.companyPhone || null,
+          emailContact: dto.companyEmail || null,
+        },
+        update: {
+          ...(raisonSociale && { raisonSociale }),
+          ...(numeroInscriptionOrdre !== undefined && { numeroInscriptionOrdre }),
+          ...(paysCode !== undefined && { paysCode }),
+          ...(adresseStr !== undefined && { adresse: adresseStr }),
+          ...(dto.companyPhone !== undefined && { telephone: dto.companyPhone }),
+          ...(dto.companyEmail !== undefined && { emailContact: dto.companyEmail }),
+        },
+      });
+
+      if (raisonSociale && raisonSociale !== tenant.name) {
+        await this.prisma.tenant.update({
+          where: { id: tenantId },
+          data: { name: raisonSociale },
+        });
+      }
+    }
+
+    return this.getTenantSettings(tenantId);
   }
 
   async getLatePaymentMention(tenantId: string): Promise<string | null> {

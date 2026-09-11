@@ -57,14 +57,14 @@ export class ReminderNotificationService {
       return { sent: false, reason: 'smtp_not_configured' };
     }
 
+    const smtpUser = this.config.get<string>('SMTP_USER');
+    const smtpPass = this.config.get<string>('SMTP_PASS');
+
     const transporter = nodemailer.createTransport({
       host: this.config.get<string>('SMTP_HOST'),
       port: Number(this.config.get<string>('SMTP_PORT', '587')),
       secure: this.config.get<string>('SMTP_SECURE', 'false') === 'true',
-      auth: {
-        user: this.config.get<string>('SMTP_USER'),
-        pass: this.config.get<string>('SMTP_PASS'),
-      },
+      ...(smtpUser ? { auth: { user: smtpUser, pass: smtpPass } } : {}),
     });
 
     const from =

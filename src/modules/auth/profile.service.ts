@@ -45,7 +45,23 @@ export class ProfileService {
       throw new NotFoundException(AuthMessages.PROFILE_NOT_FOUND);
     }
 
-    return this.toProfileResponse(user, await this.settingsService.getTenantSettings(user.tenantId));
+    const [settings, cabinetEntite, cabinetCollaborateur] = await Promise.all([
+      this.settingsService.getTenantSettings(user.tenantId),
+      user.tenant.type === 'cabinet'
+        ? this.prisma.cabinetEntite.findUnique({ where: { tenantId: user.tenantId } })
+        : null,
+      user.tenant.type === 'cabinet'
+        ? this.prisma.cabinetCollaborateur.findFirst({
+            where: {
+              OR: [{ userId: user.id }, { email: user.email }],
+              isDeleted: false,
+            },
+            include: { role: true },
+          })
+        : null,
+    ]);
+
+    return this.toProfileResponse(user, settings, cabinetEntite, cabinetCollaborateur);
   }
 
   async updateProfile(userId: string, dto: UpdateProfileDto) {
@@ -85,7 +101,23 @@ export class ProfileService {
       include: this.userInclude,
     });
 
-    return this.toProfileResponse(updated, await this.settingsService.getTenantSettings(updated.tenantId));
+    const [settings, cabinetEntite, cabinetCollaborateur] = await Promise.all([
+      this.settingsService.getTenantSettings(updated.tenantId),
+      updated.tenant.type === 'cabinet'
+        ? this.prisma.cabinetEntite.findUnique({ where: { tenantId: updated.tenantId } })
+        : null,
+      updated.tenant.type === 'cabinet'
+        ? this.prisma.cabinetCollaborateur.findFirst({
+            where: {
+              OR: [{ userId: updated.id }, { email: updated.email }],
+              isDeleted: false,
+            },
+            include: { role: true },
+          })
+        : null,
+    ]);
+
+    return this.toProfileResponse(updated, settings, cabinetEntite, cabinetCollaborateur);
   }
 
   async changePassword(userId: string, dto: ChangePasswordDto) {
@@ -136,13 +168,29 @@ export class ProfileService {
           permissions: Array<{ permission: { code: string } }>;
         };
       }>;
-     },
+    },
     tenantSettings: {
       legalName: string | null;
       tradeName: string | null;
       primaryCurrency: string;
       companyEmail: string | null;
     },
+    cabinetEntite?: {
+      id: string;
+      raisonSociale: string;
+      numeroInscriptionOrdre: string | null;
+      paysCode: string;
+      adresse: string | null;
+      telephone: string | null;
+      emailContact: string | null;
+    } | null,
+    cabinetCollaborateur?: {
+      id: string;
+      nomPrenoms: string;
+      statut: string;
+      numeroOrdreProfessionnel: string | null;
+      role?: { code: string; libelle: string } | null;
+    } | null,
   ) {
     const roles = user.roles.map((ur) => ur.role.code);
     const permissions = [
@@ -153,14 +201,42 @@ export class ProfileService {
       ),
     ].sort();
 
+    const cabinet = cabinetEntite
+      ? {
+          id: cabinetEntite.id,
+          raisonSociale: cabinetEntite.raisonSociale,
+          numeroInscriptionOrdre: cabinetEntite.numeroInscriptionOrdre,
+          paysCode: cabinetEntite.paysCode,
+          adresse: cabinetEntite.adresse,
+          telephone: cabinetEntite.telephone,
+          emailContact: cabinetEntite.emailContact,
+        }
+      : null;
+
+    const collaborateur = cabinetCollaborateur
+      ? {
+          id: cabinetCollaborateur.id,
+          nomPrenoms: cabinetCollaborateur.nomPrenoms,
+          statut: cabinetCollaborateur.statut,
+          numeroOrdreProfessionnel: cabinetCollaborateur.numeroOrdreProfessionnel,
+          role: cabinetCollaborateur.role
+            ? {
+                code: cabinetCollaborateur.role.code,
+                libelle: cabinetCollaborateur.role.libelle,
+              }
+            : null,
+        }
+      : null;
+
     const tenant = {
       id: user.tenant.id,
-      name: user.tenant.name,
+      name: cabinetEntite?.raisonSociale || tenantSettings.legalName || user.tenant.name,
       type: user.tenant.type,
-      legalName: tenantSettings.legalName,
+      legalName: cabinetEntite?.raisonSociale || tenantSettings.legalName,
       tradeName: tenantSettings.tradeName,
       primaryCurrency: tenantSettings.primaryCurrency,
-      companyEmail: tenantSettings.companyEmail,
+      companyEmail: cabinetEntite?.emailContact || tenantSettings.companyEmail,
+      cabinet,
     };
 
     return {
@@ -170,11 +246,13 @@ export class ProfileService {
       lastName: user.lastName,
       tenant,
       tenantId: user.tenantId,
-      tenantName: user.tenant.name,
+      tenantName: tenant.name,
       isActive: user.isActive,
       isSuperAdmin: user.isSuperAdmin,
       roles,
       permissions,
+      cabinet,
+      collaborateur,
       createdAt: user.createdAt,
       updatedAt: user.updatedAt,
     };

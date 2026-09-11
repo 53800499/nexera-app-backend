@@ -60,6 +60,16 @@ export class UpdateTenantSettingsDto {
   @IsOptional()
   registrationNumber?: string;
 
+  @ApiPropertyOptional({ description: "Numéro d'inscription à l'Ordre (pour cabinets)" })
+  @IsString()
+  @IsOptional()
+  numeroInscriptionOrdre?: string;
+
+  @ApiPropertyOptional({ description: "Code pays de l'Ordre (ex: BJ, FR)" })
+  @IsString()
+  @IsOptional()
+  paysCode?: string;
+
   @ApiPropertyOptional({ example: '10 000 EUR' })
   @IsString()
   @IsOptional()

@@ -19,5 +19,9 @@ export const CabinetMessages = {
     'Fournissez un code d\'invitation cabinet ou un identifiant cabinet.',
   SCOPE_INVOICES_DENIED:
     "L'entreprise n'a pas autorisé la consultation des factures pour ce dossier.",
+  SCOPE_PAYMENTS_DENIED:
+    "L'entreprise n'a pas autorisé la consultation des encaissements pour ce dossier.",
+  SCOPE_CLIENTS_DENIED:
+    "L'entreprise n'a pas autorisé la consultation des clients pour ce dossier.",
   PERMISSIONS_UPDATED: 'Les droits du cabinet ont été mis à jour.',
 } as const;
