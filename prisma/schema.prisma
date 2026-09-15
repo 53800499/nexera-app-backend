@@ -4651,3 +4651,1113 @@ model CabinetJobImportExport {
   @@map("cabinet_job_import_export")
 }
 
+
+
+// =====================================================================
+// MODULE 7 — FISCALITÉ (NEXERA ERP)
+// Schéma PostgreSQL : tax — 40 tables en 12 groupes fonctionnels
+// Conforme SFD v1.0, MBD v1.0 et Arrêté n° 1085-C (FEC Bénin)
+// =====================================================================
+
+// ----------------------------------------------------
+// ENUMS FISCAUX
+// ----------------------------------------------------
+
+enum TaxTypeCategorie {
+  IMPOT_RESULTAT
+  TAXE_CHIFFRE_AFFAIRES
+  RETENUE_SOURCE
+  TAXE_PATRIMOINE
+  TAXE_LOCALE
+  DROIT_ENREGISTREMENT_TIMBRE
+  AUTRE
+}
+
+enum TaxNiveauAdmin {
+  NATIONAL
+  LOCAL
+}
+
+enum TaxPeriodicite {
+  MENSUELLE
+  TRIMESTRIELLE
+  ANNUELLE
+  PONCTUELLE_EVENEMENT
+}
+
+enum TaxModeCalcul {
+  TAUX_UNIQUE
+  BAREME_PROGRESSIF
+  BAREME_PAR_TRANCHE_CA
+  MONTANT_FIXE
+  FORMULE_SPECIFIQUE
+}
+
+enum TaxStatutBareme {
+  BROUILLON
+  VALIDE
+  ACTIF
+  REMPLACE
+}
+
+enum TaxTypeValeurParam {
+  NUMERIQUE
+  TEXTE
+  BOOLEEN
+  DATE
+}
+
+enum TaxRegimeCode {
+  REEL_NORMAL
+  REEL_SIMPLIFIE
+  SYNTHETIQUE
+}
+
+enum TaxObligationComptable {
+  COMPTABILITE_COMPLETE
+  COMPTABILITE_ALLEGEE
+  AUCUNE
+}
+
+enum TaxStatutVeille {
+  A_QUALIFIER
+  QUALIFIEE
+  PARAMETRAGE_EN_COURS
+  APPLIQUEE
+  SANS_IMPACT_LOGICIEL
+}
+
+enum TaxTypeSourceReglementaire {
+  LOI_FINANCES
+  CODE_GENERAL_IMPOTS
+  ARRETE
+  CIRCULAIRE
+  NOTE_ADMINISTRATIVE
+  DECISION_JUSTICE
+  AUTRE
+}
+
+enum TaxStatutExercice {
+  OUVERT
+  EN_CALCUL
+  DECLARE
+  CLOTURE
+}
+
+enum TaxSensRetraitement {
+  REINTEGRATION
+  DEDUCTION
+}
+
+enum TaxStatutCalculIs {
+  BROUILLON
+  VALIDE
+  DECLARE
+  TRANSMIS_M3
+}
+
+enum TaxStatutAcompte {
+  A_PAYER
+  PAYE
+  EN_RETARD
+}
+
+enum TaxStatutDeclaration {
+  BROUILLON
+  VALIDEE
+  DECLAREE
+  PAYEE
+  EN_RETARD
+}
+
+enum TaxNatureLigneTva {
+  VENTE_TAXABLE
+  VENTE_EXONEREE
+  ACHAT_DEDUCTIBLE
+  IMPORTATION
+  NOTE_FRAIS_DEDUCTIBLE
+}
+
+enum TaxNatureAib {
+  IMPORTATION
+  ACHAT_COMMERCIAL_IFU
+  PRESTATION_SERVICE_IFU
+  ACHAT_NON_IMMATRICULE
+}
+
+enum TaxModuleSource {
+  M2_GESTION_COMMERCIALE
+  M4_RH_PAIE
+  M5_NOTES_FRAIS
+}
+
+enum TaxStatutTraitementSource {
+  RECU
+  INTEGRE_DECLARATION
+  IGNORE
+}
+
+enum TaxStatutObligationPaie {
+  RECUE
+  CONSOLIDEE_CALENDRIER
+  DECLAREE
+  PAYEE
+}
+
+enum TaxSystemeComptable {
+  SYSTEME_NORMAL
+  SMT
+}
+
+enum TaxStatutLiasse {
+  GENEREE
+  EN_REVISION_CABINET
+  VALIDEE
+  DEPOSEE
+}
+
+enum TaxStatutEcheance {
+  A_VENIR
+  DUE
+  PAYEE
+  EN_RETARD
+}
+
+enum TaxCanalAlerte {
+  APPLICATION
+  EMAIL
+  SMS
+}
+
+enum TaxStatutAlerte {
+  PLANIFIEE
+  ENVOYEE
+  ECHEC
+}
+
+enum TaxProtocoleEdi {
+  API_REST
+  EDI_XML
+  DEPOT_FICHIER_PORTAIL
+}
+
+enum TaxStatutEdi {
+  ENVOYEE
+  ACCEPTEE
+  REJETEE
+  EN_ATTENTE_ACCUSE
+}
+
+enum TaxStatutEcritureFiscale {
+  GENEREE
+  TRANSMISE_M3
+  COMPTABILISEE_M3
+  REJETEE_M3
+}
+
+enum TaxTypePenalite {
+  RETARD_DECLARATION
+  INSUFFISANCE_DECLARATION
+  RETARD_PAIEMENT
+  INTERET_RETARD
+}
+
+enum TaxStatutPenalite {
+  CALCULEE
+  CONTESTEE
+  PAYEE
+  ANNULEE
+}
+
+enum TaxTypeControle {
+  SUR_PIECES
+  SUR_PLACE
+  PONCTUEL
+}
+
+enum TaxStatutControle {
+  EN_COURS
+  CLOTURE_SANS_REDRESSEMENT
+  CLOTURE_AVEC_REDRESSEMENT
+}
+
+enum TaxStatutRedressement {
+  NOTIFIE
+  ACCEPTE
+  CONTESTE
+  TRANCHE
+}
+
+enum TaxTypeRecours {
+  RECLAMATION_PREALABLE
+  RECOURS_HIERARCHIQUE
+  RECOURS_JURIDICTIONNEL
+  DEMANDE_GRACIEUSE
+}
+
+enum TaxStatutRecours {
+  EN_COURS
+  ACCEPTEE
+  REJETEE
+  PARTIELLEMENT_ACCEPTEE
+}
+
+enum TaxConnecteurSens {
+  IMPORT
+  EXPORT
+  BIDIRECTIONNEL
+}
+
+enum TaxConnecteurFormat {
+  CSV
+  XLSX
+  JSON
+  XML
+  EDI
+  API_REST
+}
+
+enum TaxJobStatut {
+  EN_COURS
+  TERMINE
+  TERMINE_AVEC_ERREURS
+  ECHEC
+}
+
+enum TaxAuditAction {
+  CREATION
+  MODIFICATION
+  SUPPRESSION
+  CONSULTATION
+  EXPORT
+  VALIDATION_BAREME
+}
+
+// ----------------------------------------------------
+// GROUPE A : MOTEUR FISCAL GÉNÉRIQUE & VEILLE
+// ----------------------------------------------------
+
+model TaxPays {
+  codeIso2                     String                    @id @map("code_iso2") @db.Char(2)
+  libelle                      String                    @map("libelle")
+  deviseCode                   String                    @map("devise_code") @db.Char(3)
+  administrationFiscaleLibelle String?                   @map("administration_fiscale_libelle")
+  administrationFiscaleSigle   String?                   @map("administration_fiscale_sigle")
+  actif                        Boolean                   @default(true) @map("actif")
+  createdAt                    DateTime                  @default(now()) @map("created_at")
+  updatedAt                    DateTime                  @updatedAt @map("updated_at")
+
+  sources                      TaxSourceReglementaire[]
+  types                        TaxType[]
+  regimes                      TaxRegimeImposition[]
+  parametres                   TaxParametrePays[]
+  contribuables                TaxContribuable[]
+  connecteursDgi               TaxConnecteurDgi[]
+
+  @@map("tax_pays")
+}
+
+model TaxSourceReglementaire {
+  id                      String                     @id @default(uuid())
+  paysCode                String                     @map("pays_code") @db.Char(2)
+  typeSource              TaxTypeSourceReglementaire @map("type_source")
+  reference               String                     @map("reference")
+  titre                   String                     @map("titre")
+  datePublication         DateTime                   @map("date_publication") @db.Date
+  dateEntreeVigueur       DateTime                   @map("date_entree_vigueur") @db.Date
+  fichierUrl              String?                    @map("fichier_url")
+  resume                  String?                    @map("resume")
+  statutVeille            TaxStatutVeille            @default(A_QUALIFIER) @map("statut_veille")
+  saisiParUtilisateurId   String?                    @map("saisi_par_utilisateur_id")
+  createdAt               DateTime                   @default(now()) @map("created_at")
+  updatedAt               DateTime                   @updatedAt @map("updated_at")
+  isDeleted               Boolean                    @default(false) @map("is_deleted")
+
+  pays                    TaxPays                    @relation(fields: [paysCode], references: [codeIso2])
+  baremes                 TaxBareme[]
+  parametres              TaxParametrePays[]
+  penalites               TaxPenalite[]
+  modificationsBareme     TaxJournalModificationBareme[]
+
+  @@index([paysCode, statutVeille])
+  @@map("tax_source_reglementaire")
+}
+
+model TaxType {
+  id                          String                       @id @default(uuid())
+  paysCode                    String                       @map("pays_code") @db.Char(2)
+  code                        String                       @map("code")
+  libelle                     String                       @map("libelle")
+  categorie                   TaxTypeCategorie             @map("categorie")
+  niveauAdministration        TaxNiveauAdmin               @default(NATIONAL) @map("niveau_administration")
+  periodiciteDeclarative      TaxPeriodicite               @map("periodicite_declarative")
+  modeCalcul                  TaxModeCalcul                @map("mode_calcul")
+  applicableRegimeSynthetique Boolean                      @default(false) @map("applicable_regime_synthetique")
+  texteReferenceDefaut        String?                      @map("texte_reference_defaut")
+  actif                       Boolean                      @default(true) @map("actif")
+  createdAt                   DateTime                     @default(now()) @map("created_at")
+  updatedAt                   DateTime                     @updatedAt @map("updated_at")
+  isDeleted                   Boolean                      @default(false) @map("is_deleted")
+
+  pays                        TaxPays                      @relation(fields: [paysCode], references: [codeIso2])
+  baremes                     TaxBareme[]
+  calendriersTypes            TaxCalendrierEcheanceType[]
+  declarationsGeneriques      TaxDeclarationGenerique[]
+  declarationsRetenueSource   TaxDeclarationRetenueSource[]
+  echeances                   TaxEcheance[]
+  redressements               TaxRedressement[]
+
+  @@unique([paysCode, code])
+  @@map("tax_type")
+}
+
+model TaxBareme {
+  id                     String                    @id @default(uuid())
+  taxTypeId              String                    @map("tax_type_id")
+  sourceReglementaireId  String                    @map("source_reglementaire_id")
+  libelle                String                    @map("libelle")
+  secteurActivite        String?                   @map("secteur_activite")
+  tauxDefaut             Float?                    @map("taux_defaut")
+  dateDebutValidite      DateTime                  @map("date_debut_validite") @db.Date
+  dateFinValidite        DateTime?                 @map("date_fin_validite") @db.Date
+  statut                 TaxStatutBareme           @default(BROUILLON) @map("statut")
+  valideParUtilisateurId String?                   @map("valide_par_utilisateur_id")
+  createdAt              DateTime                  @default(now()) @map("created_at")
+  updatedAt              DateTime                  @updatedAt @map("updated_at")
+  isDeleted              Boolean                   @default(false) @map("is_deleted")
+
+  taxType                TaxType                   @relation(fields: [taxTypeId], references: [id], onDelete: Cascade)
+  sourceReglementaire    TaxSourceReglementaire    @relation(fields: [sourceReglementaireId], references: [id])
+  tranches               TaxBaremeTranche[]
+  declarationsGeneriques TaxDeclarationGenerique[]
+
+  @@index([taxTypeId, statut, dateDebutValidite])
+  @@map("tax_bareme")
+}
+
+model TaxBaremeTranche {
+  id                 String     @id @default(uuid())
+  taxBaremeId        String     @map("tax_bareme_id")
+  ordre              Int        @map("ordre") @db.SmallInt
+  critereSecondaire  String?    @map("critere_secondaire")
+  borneMin           Float      @map("borne_min")
+  borneMax           Float?     @map("borne_max")
+  taux               Float?     @map("taux")
+  montantFixe        Float?     @map("montant_fixe")
+  createdAt          DateTime   @default(now()) @map("created_at")
+  updatedAt          DateTime   @updatedAt @map("updated_at")
+
+  bareme             TaxBareme  @relation(fields: [taxBaremeId], references: [id], onDelete: Cascade)
+
+  @@index([taxBaremeId, ordre])
+  @@map("tax_bareme_tranche")
+}
+
+model TaxRegimeImposition {
+  id                      String                 @id @default(uuid())
+  paysCode                String                 @map("pays_code") @db.Char(2)
+  code                    String                 @map("code")
+  libelle                 String                 @map("libelle")
+  seuilChiffreAffairesMax Float?                 @map("seuil_chiffre_affaires_max")
+  obligationComptable     TaxObligationComptable @default(COMPTABILITE_COMPLETE) @map("obligation_comptable")
+  dateDebutValidite       DateTime               @map("date_debut_validite") @db.Date
+  dateFinValidite         DateTime?              @map("date_fin_validite") @db.Date
+  createdAt               DateTime               @default(now()) @map("created_at")
+  updatedAt               DateTime               @updatedAt @map("updated_at")
+  isDeleted               Boolean                @default(false) @map("is_deleted")
+
+  pays                    TaxPays                @relation(fields: [paysCode], references: [codeIso2])
+  contribuables           TaxContribuable[]
+
+  @@unique([paysCode, code])
+  @@map("tax_regime_imposition")
+}
+
+model TaxParametrePays {
+  id                    String              @id @default(uuid())
+  paysCode              String              @map("pays_code") @db.Char(2)
+  codeParametre         String              @map("code_parametre")
+  libelle               String              @map("libelle")
+  typeValeur            TaxTypeValeurParam  @default(NUMERIQUE) @map("type_valeur")
+  valeur                String              @map("valeur")
+  unite                 String?             @map("unite")
+  sourceReglementaireId String?             @map("source_reglementaire_id")
+  dateDebutValidite     DateTime            @map("date_debut_validite") @db.Date
+  dateFinValidite       DateTime?           @map("date_fin_validite") @db.Date
+  createdAt             DateTime            @default(now()) @map("created_at")
+  updatedAt             DateTime            @updatedAt @map("updated_at")
+
+  pays                  TaxPays             @relation(fields: [paysCode], references: [codeIso2])
+  sourceReglementaire   TaxSourceReglementaire? @relation(fields: [sourceReglementaireId], references: [id])
+
+  @@unique([paysCode, codeParametre, dateDebutValidite])
+  @@map("tax_parametre_pays")
+}
+
+model TaxCalendrierEcheanceType {
+  id                String    @id @default(uuid())
+  taxTypeId         String    @map("tax_type_id")
+  libelle           String    @map("libelle")
+  regleRecurrence   Json      @map("regle_recurrence")
+  dateDebutValidite DateTime  @map("date_debut_validite") @db.Date
+  dateFinValidite   DateTime? @map("date_fin_validite") @db.Date
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+
+  taxType           TaxType   @relation(fields: [taxTypeId], references: [id], onDelete: Cascade)
+
+  @@index([taxTypeId])
+  @@map("tax_calendrier_echeance_type")
+}
+
+// ----------------------------------------------------
+// GROUPE B : IDENTIFICATION DU CONTRIBUABLE
+// ----------------------------------------------------
+
+model TaxContribuable {
+  id                       String                    @id @default(uuid())
+  tenantId                 String                    @map("tenant_id")
+  etablissementRefId       String                    @map("etablissement_ref_id")
+  paysCode                 String                    @map("pays_code") @db.Char(2)
+  identifiantFiscalUnique  String                    @map("identifiant_fiscal_unique")
+  secteurActivite          String?                   @map("secteur_activite")
+  zoneAdministrative       String?                   @map("zone_administrative")
+  regimeImpositionId       String                    @map("regime_imposition_id")
+  centreImpotsRattachement String?                   @map("centre_impots_rattachement")
+  assujettiTva             Boolean                   @default(true) @map("assujetti_tva")
+  assujettiIs              Boolean                   @default(true) @map("assujetti_is")
+  createdAt                DateTime                  @default(now()) @map("created_at")
+  updatedAt                DateTime                  @updatedAt @map("updated_at")
+  isDeleted                Boolean                   @default(false) @map("is_deleted")
+
+  pays                     TaxPays                   @relation(fields: [paysCode], references: [codeIso2])
+  regimeImposition         TaxRegimeImposition       @relation(fields: [regimeImpositionId], references: [id])
+  options                  TaxContribuableOption[]
+  etablissementsSecondaires TaxEtablissementSecondaire[]
+  exercicesFiscaux         TaxExerciceFiscal[]
+  declarationsTva          TaxDeclarationTva[]
+  retenuesAib              TaxRetenueAib[]
+  declarationsRetenueSource TaxDeclarationRetenueSource[]
+  declarationsGeneriques   TaxDeclarationGenerique[]
+  evenementsSource         TaxEvenementSource[]
+  obligationsPaieRecues    TaxObligationPaieRecue[]
+  echeances                TaxEcheance[]
+  ecrituresComptables      TaxEcritureComptableFiscale[]
+  controlesFiscaux         TaxControleFiscal[]
+  reclamations             TaxReclamationContentieuse[]
+
+  @@unique([tenantId, etablissementRefId])
+  @@index([tenantId, identifiantFiscalUnique])
+  @@map("tax_contribuable")
+}
+
+model TaxContribuableOption {
+  id                String          @id @default(uuid())
+  taxContribuableId String          @map("tax_contribuable_id")
+  typeOption        String          @map("type_option")
+  dateEffet         DateTime        @map("date_effet") @db.Date
+  documentUrl       String?         @map("document_url")
+  createdAt         DateTime        @default(now()) @map("created_at")
+  updatedAt         DateTime        @updatedAt @map("updated_at")
+
+  contribuable      TaxContribuable @relation(fields: [taxContribuableId], references: [id], onDelete: Cascade)
+
+  @@index([taxContribuableId, dateEffet])
+  @@map("tax_contribuable_option")
+}
+
+model TaxEtablissementSecondaire {
+  id                 String          @id @default(uuid())
+  taxContribuableId  String          @map("tax_contribuable_id")
+  libelle            String          @map("libelle")
+  zoneAdministrative String?         @map("zone_administrative")
+  adresse            String?         @map("adresse")
+  createdAt          DateTime        @default(now()) @map("created_at")
+  updatedAt          DateTime        @updatedAt @map("updated_at")
+  isDeleted          Boolean         @default(false) @map("is_deleted")
+
+  contribuable       TaxContribuable @relation(fields: [taxContribuableId], references: [id], onDelete: Cascade)
+
+  @@index([taxContribuableId])
+  @@map("tax_etablissement_secondaire")
+}
+
+// ----------------------------------------------------
+// GROUPE C : IMPÔT SUR LES SOCIÉTÉS (IS/IBA)
+// ----------------------------------------------------
+
+model TaxExerciceFiscal {
+  id                     String                       @id @default(uuid())
+  taxContribuableId      String                       @map("tax_contribuable_id")
+  dateDebut              DateTime                     @map("date_debut") @db.Date
+  dateFin                DateTime                     @map("date_fin") @db.Date
+  exerciceComptableRefId String?                      @map("exercice_comptable_ref_id")
+  statut                 TaxStatutExercice            @default(OUVERT) @map("statut")
+  createdAt              DateTime                     @default(now()) @map("created_at")
+  updatedAt              DateTime                     @updatedAt @map("updated_at")
+  isDeleted              Boolean                      @default(false) @map("is_deleted")
+
+  contribuable           TaxContribuable              @relation(fields: [taxContribuableId], references: [id], onDelete: Cascade)
+  retraitements          TaxRetraitementFiscal[]
+  calculIs               TaxCalculIs?
+  acomptesIs             TaxAcompteIs[]
+  liasseFiscale          TaxLiasseFiscale?
+  soldesConsultes        TaxSoldeComptableConsulte[]
+
+  @@unique([taxContribuableId, dateDebut, dateFin])
+  @@map("tax_exercice_fiscal")
+}
+
+model TaxRetraitementFiscal {
+  id                  String              @id @default(uuid())
+  taxExerciceFiscalId String              @map("tax_exercice_fiscal_id")
+  sens                TaxSensRetraitement @map("sens")
+  libelle             String              @map("libelle")
+  montant             Float               @map("montant")
+  baseLegale          String?             @map("base_legale")
+  ecritureSourceRefId String?             @map("ecriture_source_ref_id")
+  createdAt           DateTime            @default(now()) @map("created_at")
+  updatedAt           DateTime            @updatedAt @map("updated_at")
+
+  exerciceFiscal      TaxExerciceFiscal   @relation(fields: [taxExerciceFiscalId], references: [id], onDelete: Cascade)
+
+  @@index([taxExerciceFiscalId, sens])
+  @@map("tax_retraitement_fiscal")
+}
+
+model TaxCalculIs {
+  id                       String            @id @default(uuid())
+  taxExerciceFiscalId      String            @unique @map("tax_exercice_fiscal_id")
+  resultatComptableNet     Float             @map("resultat_comptable_net")
+  totalReintegrations      Float             @default(0) @map("total_reintegrations")
+  totalDeductions          Float             @default(0) @map("total_deductions")
+  resultatFiscal           Float             @map("resultat_fiscal")
+  tauxIsApplique           Float             @map("taux_is_applique")
+  isCalculeTaux            Float             @map("is_calcule_taux")
+  produitsEncaissables     Float?            @map("produits_encaissables")
+  minimumPerceptionTaux    Float?            @map("minimum_perception_taux")
+  minimumPerceptionMontant Float?            @map("minimum_perception_montant")
+  isDu                     Float             @map("is_du")
+  totalAcomptesVerses      Float             @default(0) @map("total_acomptes_verses")
+  soldeAPayer              Float             @map("solde_a_payer")
+  statut                   TaxStatutCalculIs @default(BROUILLON) @map("statut")
+  valideParUtilisateurId   String?           @map("valide_par_utilisateur_id")
+  createdAt                DateTime          @default(now()) @map("created_at")
+  updatedAt                DateTime          @updatedAt @map("updated_at")
+
+  exerciceFiscal           TaxExerciceFiscal @relation(fields: [taxExerciceFiscalId], references: [id], onDelete: Cascade)
+
+  @@map("tax_calcul_is")
+}
+
+model TaxAcompteIs {
+  id                  String            @id @default(uuid())
+  taxExerciceFiscalId String            @map("tax_exercice_fiscal_id")
+  numeroAcompte       Int               @map("numero_acompte") @db.SmallInt
+  dateEcheance        DateTime          @map("date_echeance") @db.Date
+  montantDu           Float             @map("montant_du")
+  montantPaye         Float             @default(0) @map("montant_paye")
+  statut              TaxStatutAcompte  @default(A_PAYER) @map("statut")
+  createdAt           DateTime          @default(now()) @map("created_at")
+  updatedAt           DateTime          @updatedAt @map("updated_at")
+
+  exerciceFiscal      TaxExerciceFiscal @relation(fields: [taxExerciceFiscalId], references: [id], onDelete: Cascade)
+
+  @@unique([taxExerciceFiscalId, numeroAcompte])
+  @@map("tax_acompte_is")
+}
+
+// ----------------------------------------------------
+// GROUPE D : DÉCLARATIONS TVA & RETENUES (AIB, AUTRES)
+// ----------------------------------------------------
+
+model TaxDeclarationTva {
+  id                   String                   @id @default(uuid())
+  taxContribuableId    String                   @map("tax_contribuable_id")
+  periode              String                   @map("periode")
+  tvaCollectee         Float                    @default(0) @map("tva_collectee")
+  tvaDeductible        Float                    @default(0) @map("tva_deductible")
+  creditTvaAnterieur   Float                    @default(0) @map("credit_tva_anterieur")
+  tvaNetteDue          Float                    @map("tva_nette_due")
+  dateLimiteLegale     DateTime                 @map("date_limite_legale") @db.Date
+  statut               TaxStatutDeclaration    @default(BROUILLON) @map("statut")
+  createdAt            DateTime                 @default(now()) @map("created_at")
+  updatedAt            DateTime                 @updatedAt @map("updated_at")
+
+  contribuable         TaxContribuable          @relation(fields: [taxContribuableId], references: [id], onDelete: Cascade)
+  lignes               TaxDeclarationTvaLigne[]
+
+  @@unique([taxContribuableId, periode])
+  @@map("tax_declaration_tva")
+}
+
+model TaxDeclarationTvaLigne {
+  id                  String            @id @default(uuid())
+  taxDeclarationTvaId String            @map("tax_declaration_tva_id")
+  nature              TaxNatureLigneTva @map("nature")
+  tauxApplique        Float             @map("taux_applique")
+  baseHorsTaxe        Float             @map("base_hors_taxe")
+  montantTva          Float             @map("montant_tva")
+  evenementSourceId   String?           @map("evenement_source_id")
+  createdAt           DateTime          @default(now()) @map("created_at")
+  updatedAt           DateTime          @updatedAt @map("updated_at")
+
+  declarationTva      TaxDeclarationTva @relation(fields: [taxDeclarationTvaId], references: [id], onDelete: Cascade)
+  evenementSource     TaxEvenementSource? @relation(fields: [evenementSourceId], references: [id])
+
+  @@index([taxDeclarationTvaId, nature])
+  @@map("tax_declaration_tva_ligne")
+}
+
+model TaxRetenueAib {
+  id                 String             @id @default(uuid())
+  taxContribuableId  String             @map("tax_contribuable_id")
+  evenementSourceId  String             @map("evenement_source_id")
+  natureOperation    TaxNatureAib       @map("nature_operation")
+  tauxApplique       Float              @map("taux_applique")
+  base               Float              @map("base")
+  montantRetenu      Float              @map("montant_retenu")
+  periodeDeclarative String             @map("periode_declarative")
+  imputableIs        Boolean            @default(true) @map("imputable_is")
+  createdAt          DateTime           @default(now()) @map("created_at")
+  updatedAt          DateTime           @updatedAt @map("updated_at")
+
+  contribuable       TaxContribuable    @relation(fields: [taxContribuableId], references: [id], onDelete: Cascade)
+  evenementSource    TaxEvenementSource @relation(fields: [evenementSourceId], references: [id])
+
+  @@index([taxContribuableId, periodeDeclarative])
+  @@map("tax_retenue_aib")
+}
+
+model TaxDeclarationRetenueSource {
+  id                String               @id @default(uuid())
+  taxContribuableId String               @map("tax_contribuable_id")
+  taxTypeId         String               @map("tax_type_id")
+  periode           String               @map("periode")
+  base              Float                @map("base")
+  tauxApplique      Float                @map("taux_applique")
+  montantRetenu     Float                @map("montant_retenu")
+  statut            TaxStatutDeclaration @default(BROUILLON) @map("statut")
+  createdAt         DateTime             @default(now()) @map("created_at")
+  updatedAt         DateTime             @updatedAt @map("updated_at")
+
+  contribuable      TaxContribuable      @relation(fields: [taxContribuableId], references: [id], onDelete: Cascade)
+  taxType           TaxType              @relation(fields: [taxTypeId], references: [id])
+
+  @@index([taxContribuableId, taxTypeId, periode])
+  @@map("tax_declaration_retenue_source")
+}
+
+// ----------------------------------------------------
+// GROUPE E : AUTRES TAXES & PATENTE (MOTEUR GÉNÉRIQUE)
+// ----------------------------------------------------
+
+model TaxDeclarationGenerique {
+  id                      String                        @id @default(uuid())
+  taxContribuableId       String                        @map("tax_contribuable_id")
+  taxTypeId               String                        @map("tax_type_id")
+  periodeOuExercice       String                        @map("periode_ou_exercice")
+  baseImposable           Float?                        @map("base_imposable")
+  tauxOuBaremeAppliqueId  String?                       @map("taux_ou_bareme_applique_id")
+  montantCalcule          Float                         @map("montant_calcule")
+  dateLimiteLegale        DateTime                      @map("date_limite_legale") @db.Date
+  statut                  TaxStatutDeclaration         @default(BROUILLON) @map("statut")
+  createdAt               DateTime                      @default(now()) @map("created_at")
+  updatedAt               DateTime                      @updatedAt @map("updated_at")
+
+  contribuable            TaxContribuable               @relation(fields: [taxContribuableId], references: [id], onDelete: Cascade)
+  taxType                 TaxType                       @relation(fields: [taxTypeId], references: [id])
+  baremeApplique          TaxBareme?                    @relation(fields: [tauxOuBaremeAppliqueId], references: [id])
+  lignes                  TaxDeclarationGeneriqueLigne[]
+
+  @@index([taxContribuableId, taxTypeId, periodeOuExercice])
+  @@map("tax_declaration_generique")
+}
+
+model TaxDeclarationGeneriqueLigne {
+  id                        String                  @id @default(uuid())
+  taxDeclarationGeneriqueId String                  @map("tax_declaration_generique_id")
+  libelle                   String                  @map("libelle")
+  montant                   Float                   @map("montant")
+  createdAt                 DateTime                @default(now()) @map("created_at")
+  updatedAt                 DateTime                @updatedAt @map("updated_at")
+
+  declarationGenerique      TaxDeclarationGenerique @relation(fields: [taxDeclarationGeneriqueId], references: [id], onDelete: Cascade)
+
+  @@index([taxDeclarationGeneriqueId])
+  @@map("tax_declaration_generique_ligne")
+}
+
+// ----------------------------------------------------
+// GROUPE F : CAPTURE DES ÉVÉNEMENTS INTERMODULAIRES
+// ----------------------------------------------------
+
+model TaxEvenementSource {
+  id                    String                    @id @default(uuid())
+  moduleSource          TaxModuleSource           @map("module_source")
+  typeEvenement         String                    @map("type_evenement")
+  referenceObjetSource  String                    @map("reference_objet_source")
+  taxContribuableId     String                    @map("tax_contribuable_id")
+  dateEvenement         DateTime                  @map("date_evenement")
+  montantHt             Float?                    @map("montant_ht")
+  montantTaxe           Float?                    @map("montant_taxe")
+  natureFiscale         String?                   @map("nature_fiscale")
+  statutTraitement      TaxStatutTraitementSource @default(RECU) @map("statut_traitement")
+  createdAt             DateTime                  @default(now()) @map("created_at")
+  updatedAt             DateTime                  @updatedAt @map("updated_at")
+
+  contribuable          TaxContribuable           @relation(fields: [taxContribuableId], references: [id], onDelete: Cascade)
+  lignesTva             TaxDeclarationTvaLigne[]
+  retenuesAib           TaxRetenueAib[]
+
+  @@index([taxContribuableId, moduleSource, statutTraitement])
+  @@map("tax_evenement_source")
+}
+
+model TaxObligationPaieRecue {
+  id                 String                  @id @default(uuid())
+  taxContribuableId  String                  @map("tax_contribuable_id")
+  referenceObjetM4   String                  @map("reference_objet_m4")
+  typeObligation     String                  @map("type_obligation")
+  periode            String                  @map("periode")
+  montant            Float                   @map("montant")
+  dateLimiteLegale   DateTime                @map("date_limite_legale") @db.Date
+  statut             TaxStatutObligationPaie @default(RECUE) @map("statut")
+  createdAt          DateTime                @default(now()) @map("created_at")
+  updatedAt          DateTime                @updatedAt @map("updated_at")
+
+  contribuable       TaxContribuable         @relation(fields: [taxContribuableId], references: [id], onDelete: Cascade)
+
+  @@index([taxContribuableId, periode, statut])
+  @@map("tax_obligation_paie_recue")
+}
+
+// ----------------------------------------------------
+// GROUPE G : LIASSE FISCALE SYSCOHADA
+// ----------------------------------------------------
+
+model TaxLiasseFiscale {
+  id                   String                 @id @default(uuid())
+  taxExerciceFiscalId  String                 @unique @map("tax_exercice_fiscal_id")
+  typeSystemeComptable TaxSystemeComptable    @default(SYSTEME_NORMAL) @map("type_systeme_comptable")
+  dateGeneration       DateTime               @default(now()) @map("date_generation")
+  dateLimiteDepot      DateTime               @map("date_limite_depot") @db.Date
+  statut               TaxStatutLiasse        @default(GENEREE) @map("statut")
+  valideParCabinet     Boolean                @default(false) @map("valide_par_cabinet")
+  documentUrl          String?                @map("document_url")
+  createdAt            DateTime               @default(now()) @map("created_at")
+  updatedAt            DateTime               @updatedAt @map("updated_at")
+
+  exerciceFiscal       TaxExerciceFiscal      @relation(fields: [taxExerciceFiscalId], references: [id], onDelete: Cascade)
+  annexes              TaxLiasseFiscaleAnnexe[]
+
+  @@map("tax_liasse_fiscale")
+}
+
+model TaxLiasseFiscaleAnnexe {
+  id                 String           @id @default(uuid())
+  taxLiasseFiscaleId String           @map("tax_liasse_fiscale_id")
+  typeAnnexe         String           @map("type_annexe")
+  documentUrl        String           @map("document_url")
+  createdAt          DateTime         @default(now()) @map("created_at")
+  updatedAt          DateTime         @updatedAt @map("updated_at")
+
+  liasseFiscale      TaxLiasseFiscale @relation(fields: [taxLiasseFiscaleId], references: [id], onDelete: Cascade)
+
+  @@index([taxLiasseFiscaleId])
+  @@map("tax_liasse_fiscale_annexe")
+}
+
+// ----------------------------------------------------
+// GROUPE H : CALENDRIER FISCAL & ÉCHÉANCIER
+// ----------------------------------------------------
+
+model TaxEcheance {
+  id                String             @id @default(uuid())
+  taxContribuableId String             @map("tax_contribuable_id")
+  taxTypeId         String             @map("tax_type_id")
+  objetLieType      String?            @map("objet_lie_type")
+  objetLieId        String?            @map("objet_lie_id")
+  dateLimite        DateTime           @map("date_limite") @db.Date
+  montantEstime     Float?             @map("montant_estime")
+  statut            TaxStatutEcheance  @default(A_VENIR) @map("statut")
+  createdAt         DateTime           @default(now()) @map("created_at")
+  updatedAt         DateTime           @updatedAt @map("updated_at")
+
+  contribuable      TaxContribuable    @relation(fields: [taxContribuableId], references: [id], onDelete: Cascade)
+  taxType           TaxType            @relation(fields: [taxTypeId], references: [id])
+  alertes           TaxAlerteEcheance[]
+  penalites         TaxPenalite[]
+
+  @@index([taxContribuableId, dateLimite, statut])
+  @@map("tax_echeance")
+}
+
+model TaxAlerteEcheance {
+  id                        String          @id @default(uuid())
+  taxEcheanceId             String          @map("tax_echeance_id")
+  delaiJours                Int             @map("delai_jours") @db.SmallInt
+  dateEnvoi                 DateTime?       @map("date_envoi")
+  canal                     TaxCanalAlerte  @default(APPLICATION) @map("canal")
+  destinataireUtilisateurId String          @map("destinataire_utilisateur_id")
+  statut                    TaxStatutAlerte @default(PLANIFIEE) @map("statut")
+  createdAt                 DateTime        @default(now()) @map("created_at")
+  updatedAt                 DateTime        @updatedAt @map("updated_at")
+
+  echeance                  TaxEcheance     @relation(fields: [taxEcheanceId], references: [id], onDelete: Cascade)
+
+  @@index([taxEcheanceId, statut])
+  @@map("tax_alerte_echeance")
+}
+
+// ----------------------------------------------------
+// GROUPE I : TÉLÉDÉCLARATION & EDI
+// ----------------------------------------------------
+
+model TaxConnecteurDgi {
+  id                            String            @id @default(uuid())
+  paysCode                      String            @map("pays_code") @db.Char(2)
+  libelle                       String            @map("libelle")
+  protocole                     TaxProtocoleEdi   @map("protocole")
+  endpointUrl                   String?           @map("endpoint_url")
+  referenceIdentifiantsSecurises String?          @map("reference_identifiants_securises")
+  actif                         Boolean           @default(true) @map("actif")
+  createdAt                     DateTime          @default(now()) @map("created_at")
+  updatedAt                     DateTime          @updatedAt @map("updated_at")
+
+  pays                          TaxPays           @relation(fields: [paysCode], references: [codeIso2])
+  soumissions                   TaxSoumissionEdi[]
+
+  @@map("tax_connecteur_dgi")
+}
+
+model TaxSoumissionEdi {
+  id                       String           @id @default(uuid())
+  taxConnecteurDgiId       String           @map("tax_connecteur_dgi_id")
+  objetDeclareType         String           @map("objet_declare_type")
+  objetDeclareId           String           @map("objet_declare_id")
+  dateSoumission           DateTime         @default(now()) @map("date_soumission")
+  statut                   TaxStatutEdi     @default(ENVOYEE) @map("statut")
+  accuseReceptionReference String?          @map("accuse_reception_reference")
+  messageErreur            String?          @map("message_erreur")
+  createdAt                DateTime         @default(now()) @map("created_at")
+  updatedAt                DateTime         @updatedAt @map("updated_at")
+
+  connecteurDgi            TaxConnecteurDgi @relation(fields: [taxConnecteurDgiId], references: [id], onDelete: Cascade)
+
+  @@index([taxConnecteurDgiId, statut])
+  @@map("tax_soumission_edi")
+}
+
+// ----------------------------------------------------
+// GROUPE J : INTERFACE COMPTABLE (M3) & FEC
+// ----------------------------------------------------
+
+model TaxEcritureComptableFiscale {
+  id                    String                  @id @default(uuid())
+  taxContribuableId     String                  @map("tax_contribuable_id")
+  objetSourceType       String                  @map("objet_source_type")
+  objetSourceId         String                  @map("objet_source_id")
+  dateEcriture          DateTime                @map("date_ecriture") @db.Date
+  compteDebitSyscohada  String                  @map("compte_debit_syscohada")
+  compteCreditSyscohada String                  @map("compte_credit_syscohada")
+  montant               Float                   @map("montant")
+  statut                TaxStatutEcritureFiscale @default(GENEREE) @map("statut")
+  referenceEcritureM3   String?                 @map("reference_ecriture_m3")
+  createdAt             DateTime                @default(now()) @map("created_at")
+  updatedAt             DateTime                @updatedAt @map("updated_at")
+
+  contribuable          TaxContribuable         @relation(fields: [taxContribuableId], references: [id], onDelete: Cascade)
+
+  @@index([taxContribuableId, statut])
+  @@map("tax_ecriture_comptable_fiscale")
+}
+
+model TaxSoldeComptableConsulte {
+  id                                  String            @id @default(uuid())
+  taxExerciceFiscalId                 String            @map("tax_exercice_fiscal_id")
+  compteSyscohadaConsulte             String            @map("compte_syscohada_consulte")
+  soldeLu                             Float             @map("solde_lu")
+  dateConsultation                    DateTime          @default(now()) @map("date_consultation")
+  exerciceComptableStatutALaLecture   String            @map("exercice_comptable_statut_a_la_lecture")
+  createdAt                           DateTime          @default(now()) @map("created_at")
+
+  exerciceFiscal                      TaxExerciceFiscal @relation(fields: [taxExerciceFiscalId], references: [id], onDelete: Cascade)
+
+  @@index([taxExerciceFiscalId])
+  @@map("tax_solde_comptable_consulte")
+}
+
+// ----------------------------------------------------
+// GROUPE K : CONTRÔLE FISCAL, SANCTIONS & CONTENTIEUX
+// ----------------------------------------------------
+
+model TaxPenalite {
+  id                    String                 @id @default(uuid())
+  taxEcheanceId         String?                @map("tax_echeance_id")
+  typePenalite          TaxTypePenalite        @map("type_penalite")
+  baseCalcul            Float                  @map("base_calcul")
+  tauxApplique          Float                  @map("taux_applique")
+  montantPenalite       Float                  @map("montant_penalite")
+  sourceReglementaireId String?                @map("source_reglementaire_id")
+  statut                TaxStatutPenalite      @default(CALCULEE) @map("statut")
+  createdAt             DateTime               @default(now()) @map("created_at")
+  updatedAt             DateTime               @updatedAt @map("updated_at")
+
+  echeance              TaxEcheance?           @relation(fields: [taxEcheanceId], references: [id])
+  sourceReglementaire   TaxSourceReglementaire? @relation(fields: [sourceReglementaireId], references: [id])
+
+  @@index([taxEcheanceId, statut])
+  @@map("tax_penalite")
+}
+
+model TaxControleFiscal {
+  id                      String              @id @default(uuid())
+  taxContribuableId       String              @map("tax_contribuable_id")
+  typeControle            TaxTypeControle     @map("type_controle")
+  dateAvisVerification   DateTime?           @map("date_avis_verification") @db.Date
+  periodeControleeDebut   DateTime?           @map("periode_controlee_debut") @db.Date
+  periodeControleeFin     DateTime?           @map("periode_controlee_fin") @db.Date
+  serviceEnCharge         String?             @map("service_en_charge")
+  statut                  TaxStatutControle   @default(EN_COURS) @map("statut")
+  createdAt               DateTime            @default(now()) @map("created_at")
+  updatedAt               DateTime            @updatedAt @map("updated_at")
+
+  contribuable            TaxContribuable     @relation(fields: [taxContribuableId], references: [id], onDelete: Cascade)
+  redressements           TaxRedressement[]
+
+  @@index([taxContribuableId, statut])
+  @@map("tax_controle_fiscal")
+}
+
+model TaxRedressement {
+  id                         String                      @id @default(uuid())
+  taxControleFiscalId        String                      @map("tax_controle_fiscal_id")
+  taxTypeId                  String                      @map("tax_type_id")
+  exerciceOuPeriodeConcerne  String                      @map("exercice_ou_periode_concerne")
+  motif                      String                      @map("motif")
+  montantDroitsReclames      Float                       @map("montant_droits_reclames")
+  montantPenalitesReclamees  Float                       @default(0) @map("montant_penalites_reclamees")
+  statut                     TaxStatutRedressement       @default(NOTIFIE) @map("statut")
+  createdAt                  DateTime                    @default(now()) @map("created_at")
+  updatedAt                  DateTime                    @updatedAt @map("updated_at")
+
+  controleFiscal             TaxControleFiscal           @relation(fields: [taxControleFiscalId], references: [id], onDelete: Cascade)
+  taxType                    TaxType                     @relation(fields: [taxTypeId], references: [id])
+  reclamations               TaxReclamationContentieuse[]
+
+  @@index([taxControleFiscalId])
+  @@map("tax_redressement")
+}
+
+model TaxReclamationContentieuse {
+  id                 String             @id @default(uuid())
+  redressementId     String?            @map("redressement_id")
+  taxContribuableId  String             @map("tax_contribuable_id")
+  typeRecours        TaxTypeRecours     @map("type_recours")
+  dateDepot          DateTime           @map("date_depot") @db.Date
+  objet              String             @map("objet")
+  statut             TaxStatutRecours   @default(EN_COURS) @map("statut")
+  decisionDocumentUrl String?           @map("decision_document_url")
+  createdAt          DateTime           @default(now()) @map("created_at")
+  updatedAt          DateTime           @updatedAt @map("updated_at")
+
+  redressement       TaxRedressement?   @relation(fields: [redressementId], references: [id])
+  contribuable       TaxContribuable    @relation(fields: [taxContribuableId], references: [id], onDelete: Cascade)
+
+  @@index([taxContribuableId, statut])
+  @@map("tax_reclamation_contentieuse")
+}
+
+// ----------------------------------------------------
+// GROUPE L : IMPORT / EXPORT & AUDIT
+// ----------------------------------------------------
+
+model TaxConnecteurEchange {
+  id                  String                  @id @default(uuid())
+  code                String                  @unique @map("code")
+  libelle             String                  @map("libelle")
+  sens                TaxConnecteurSens       @map("sens")
+  format              TaxConnecteurFormat     @map("format")
+  systemeTiersLibelle String?                 @map("systeme_tiers_libelle")
+  actif               Boolean                 @default(true) @map("actif")
+  createdAt           DateTime                @default(now()) @map("created_at")
+  updatedAt           DateTime                @updatedAt @map("updated_at")
+  isDeleted           Boolean                 @default(false) @map("is_deleted")
+
+  mappings            TaxMappingChamp[]
+  jobs                TaxJobImportExport[]
+
+  @@map("tax_connecteur_echange")
+}
+
+model TaxMappingChamp {
+  id                     String               @id @default(uuid())
+  taxConnecteurEchangeId String               @map("tax_connecteur_echange_id")
+  champSource            String               @map("champ_source")
+  champCibleNexera       String               @map("champ_cible_nexera")
+  regleTransformation    Json?                @map("regle_transformation")
+  obligatoire            Boolean              @default(false) @map("obligatoire")
+  createdAt              DateTime             @default(now()) @map("created_at")
+  updatedAt              DateTime             @updatedAt @map("updated_at")
+
+  connecteur             TaxConnecteurEchange @relation(fields: [taxConnecteurEchangeId], references: [id], onDelete: Cascade)
+
+  @@index([taxConnecteurEchangeId])
+  @@map("tax_mapping_champ")
+}
+
+model TaxJobImportExport {
+  id                     String               @id @default(uuid())
+  tenantId               String               @map("tenant_id")
+  taxConnecteurEchangeId String               @map("tax_connecteur_echange_id")
+  sens                   TaxConnecteurSens    @map("sens")
+  statut                 TaxJobStatut         @default(EN_COURS) @map("statut")
+  nombreLignesTraitees   Int                  @default(0) @map("nombre_lignes_traitees")
+  nombreSucces           Int                  @default(0) @map("nombre_succes")
+  nombreErreurs          Int                  @default(0) @map("nombre_erreurs")
+  logErreurs             Json?                @map("log_erreurs")
+  dateExecution          DateTime             @default(now()) @map("date_execution")
+  createdAt              DateTime             @default(now()) @map("created_at")
+  updatedAt              DateTime             @updatedAt @map("updated_at")
+
+  connecteur             TaxConnecteurEchange @relation(fields: [taxConnecteurEchangeId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, statut])
+  @@map("tax_job_import_export")
+}
+
+model TaxJournalAudit {
+  id               String         @id @default(uuid())
+  tableCible       String         @map("table_cible")
+  enregistrementId String         @map("enregistrement_id")
+  action           TaxAuditAction @map("action")
+  utilisateurId    String         @map("utilisateur_id")
+  valeurAvant      Json?          @map("valeur_avant")
+  valeurApres      Json?          @map("valeur_apres")
+  dateAction       DateTime       @default(now()) @map("date_action")
+  createdAt        DateTime       @default(now()) @map("created_at")
+
+  @@index([tableCible, dateAction])
+  @@index([enregistrementId])
+  @@map("tax_journal_audit")
+}
+
+model TaxJournalModificationBareme {
+  id                               String                 @id @default(uuid())
+  tableModifiee                    String                 @map("table_modifiee")
+  enregistrementId                 String                 @map("enregistrement_id")
+  sourceReglementaireId            String                 @map("source_reglementaire_id")
+  saisiParUtilisateurId            String                 @map("saisi_par_utilisateur_id")
+  valideParUtilisateurId           String?                @map("valide_par_utilisateur_id")
+  dateSaisie                       DateTime               @default(now()) @map("date_saisie")
+  dateValidation                   DateTime?              @map("date_validation")
+  aNecessiteRecalculRetroactif     Boolean                @default(false) @map("a_necessite_recalcul_retroactif")
+  declarationsImpacteesRecalculees Int                    @default(0) @map("declarations_impactees_recalculees")
+  createdAt                        DateTime               @default(now()) @map("created_at")
+
+  sourceReglementaire              TaxSourceReglementaire @relation(fields: [sourceReglementaireId], references: [id])
+
+  @@index([tableModifiee, dateSaisie])
+  @@map("tax_journal_modification_bareme")
+}

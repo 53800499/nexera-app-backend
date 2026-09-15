@@ -26,7 +26,7 @@ export class InventoryFreezeGuard {
     });
     if (open) {
       throw new BadRequestException(
-        `${CrmMessages.stock.INVENTORY_MOVEMENTS_FROZEN} (${open.number})`,
+        `${CrmMessages.stock.INVENTORY_MOVEMENTS_FROZEN} (Inventaire en cours : ${open.number})`,
       );
     }
   }

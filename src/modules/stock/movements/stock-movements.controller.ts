@@ -1,8 +1,10 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Param,
+  Patch,
   Post,
   Query,
   Request,
@@ -18,6 +20,7 @@ import { StockMovementsService } from './stock-movements.service';
 import { StockExitsService } from './stock-exits.service';
 import { CreateStockEntryDto } from './dto/create-stock-entry.dto';
 import { CreateStockExitDto } from './dto/create-stock-exit.dto';
+import { UpdateDraftSerialsDto } from './dto/update-draft-serials.dto';
 
 @ApiTags('stock-movements')
 @ApiBearerAuth('access-token')
@@ -109,7 +112,7 @@ export class StockMovementsController {
   @Get('items/:stockItemId/available-lots')
   @Permissions('stock.read')
   @ApiOperation({
-    summary: 'Lots / niveaux disponibles pour une sortie (FIFO — RM-OUT02)',
+    summary: 'Lots et niveaux disponibles pour une sortie',
   })
   @ApiQuery({ name: 'warehouseId', required: true })
   listAvailableLots(
@@ -120,6 +123,56 @@ export class StockMovementsController {
     return this.stockExitsService.listAvailableLots(
       stockItemId,
       warehouseId,
+      req.user.tenantId,
+    );
+  }
+
+  @Get('items/:stockItemId/available-serials')
+  @Permissions('stock.read')
+  @ApiOperation({
+    summary: 'Numéros de série disponibles en stock pour un article',
+  })
+  @ApiQuery({ name: 'warehouseId', required: false })
+  listAvailableSerials(
+    @Param('stockItemId') stockItemId: string,
+    @Query('warehouseId') warehouseId: string,
+    @Request() req: { user: { tenantId: string } },
+  ) {
+    return this.stockExitsService.listAvailableSerials(
+      stockItemId,
+      warehouseId,
+      req.user.tenantId,
+    );
+  }
+
+  @Patch('movements/:id/serials')
+  @Permissions('manage:stock')
+  @ApiOperation({
+    summary: 'Modifier les numéros de série d’une ligne sur un mouvement brouillon',
+  })
+  updateDraftSerials(
+    @Param('id') id: string,
+    @Body() dto: UpdateDraftSerialsDto,
+    @Request() req: { user: { tenantId: string } },
+  ) {
+    return this.stockMovementsService.updateDraftSerials(
+      id,
+      req.user.tenantId,
+      dto,
+    );
+  }
+
+  @Delete('movements/:id')
+  @Permissions('manage:stock')
+  @ApiOperation({
+    summary: 'Supprimer un mouvement de stock en brouillon',
+  })
+  deleteDraftMovement(
+    @Param('id') id: string,
+    @Request() req: { user: { tenantId: string } },
+  ) {
+    return this.stockMovementsService.deleteDraftMovement(
+      id,
       req.user.tenantId,
     );
   }

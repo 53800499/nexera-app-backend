@@ -28,6 +28,7 @@ import { SyncModule } from './modules/sync/sync.module';
 import { CabinetModule } from './modules/cabinet/cabinet.module';
 import { RhModule } from './modules/rh/rh.module';
 import { NotesFraisModule } from './modules/notes-frais/notes-frais.module';
+import { FiscaliteModule } from './modules/fiscalite/fiscalite.module';
 import { HealthModule } from './health/health.module';
 import { MetricsModule } from './shared/metrics/metrics.module';
 import { MetricsMiddleware } from './shared/metrics/metrics.middleware';
@@ -71,6 +72,7 @@ import { PermissionsGuard } from './common/guards/permissions.guard';
     CabinetModule,
     RhModule,
     NotesFraisModule,
+    FiscaliteModule,
   ],
   controllers: [AppController],
   providers: [

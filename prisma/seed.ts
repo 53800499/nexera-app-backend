@@ -98,6 +98,19 @@ const NOTES_FRAIS_PERMISSIONS = [
   { code: 'ndf.settings.manage', description: 'Configurer les politiques et barèmes de dépenses' },
 ];
 
+const FISCALITE_PERMISSIONS = [
+  { code: 'fiscalite.read', description: 'Consulter le module Fiscalité' },
+  { code: 'fiscalite.write', description: 'Gérer les déclarations et données fiscales' },
+  { code: 'manage:fiscalite', description: 'Administration Fiscalité (API guard)' },
+  { code: 'fiscalite.tva.manage', description: 'Gérer et valider les déclarations de TVA' },
+  { code: 'fiscalite.aib.manage', description: 'Gérer et émettre les retenues AIB' },
+  { code: 'fiscalite.is.manage', description: 'Calculer et valider l’Impôt sur les Sociétés et les acomptes' },
+  { code: 'fiscalite.liasse.manage', description: 'Générer et télétransmettre la liasse fiscale annuelle' },
+  { code: 'fiscalite.fec.export', description: 'Générer et exporter le Fichier des Écritures Comptables (FEC Arrêté 1085-C)' },
+  { code: 'fiscalite.baremes.validate', description: 'Double validation des barèmes fiscaux et sources réglementaires' },
+  { code: 'fiscalite.controles.manage', description: 'Suivre les contrôles fiscaux, recours et contentieux' },
+];
+
 const ALL_NEW_PERMISSIONS = [
   ...QUOTATION_PERMISSIONS,
   ...ORDER_PERMISSIONS,
@@ -112,10 +125,12 @@ const ALL_NEW_PERMISSIONS = [
   ...CABINET_PERMISSIONS,
   ...RH_PERMISSIONS,
   ...NOTES_FRAIS_PERMISSIONS,
+  ...FISCALITE_PERMISSIONS,
 ];
 
 import { seedRhData } from './seed-rh';
 import { seedNdfData } from './seed-ndf';
+import { seedFiscaliteData } from './seed-fiscalite';
 
 const ADMIN_ROLE_CODES = ['ADMIN', 'CEO', 'CABINET_ADMIN'];
 
@@ -293,6 +308,9 @@ async function main() {
 
   // 7. Seed Notes de Frais standard reference tables (catégories, barèmes, etc.)
   await seedNdfData(prisma);
+
+  // 8. Seed Module 7 Fiscalité (Bénin CGI 2026, barèmes, paramètres, types)
+  await seedFiscaliteData(prisma);
 
   await prisma.$disconnect();
 }

@@ -148,6 +148,47 @@ export class StockExitsService {
     };
   }
 
+  async listAvailableSerials(
+    stockItemId: string,
+    warehouseId: string,
+    tenantId: string,
+  ) {
+    const stockItem = await this.prisma.stockItem.findFirst({
+      where: { id: stockItemId, tenantId },
+    });
+    if (!stockItem) {
+      throw new NotFoundException(CrmMessages.stock.STOCK_ITEM_NOT_FOUND);
+    }
+
+    const serials = await this.prisma.stockItemSerial.findMany({
+      where: {
+        tenantId,
+        stockItemId,
+        status: StockSerialStatus.in_stock,
+        ...(warehouseId ? { warehouseId } : {}),
+      },
+      include: {
+        location: { select: { id: true, code: true } },
+        lot: { select: { id: true, lotNumber: true } },
+      },
+      orderBy: { receivedDate: 'asc' },
+    });
+
+    return {
+      stockItemId,
+      serials: serials.map((s) => ({
+        id: s.id,
+        serialNumber: s.serialNumber,
+        warehouseId: s.warehouseId,
+        locationId: s.locationId,
+        locationCode: s.location?.code ?? null,
+        lotId: s.lotId,
+        lotNumber: s.lot?.lotNumber ?? null,
+        receivedDate: s.receivedDate,
+      })),
+    };
+  }
+
   async createExit(dto: CreateStockExitDto, tenantId: string, userId: string) {
     this.assertExitHeader(dto);
 
@@ -231,7 +272,16 @@ export class StockExitsService {
     });
 
     if (dto.validate && !requiresApproval) {
-      return this.validateExit(movement.id, tenantId, userId);
+      try {
+        return await this.validateExit(movement.id, tenantId, userId);
+      } catch (err) {
+        await this.prisma.stockMovement
+          .delete({
+            where: { id: movement.id },
+          })
+          .catch(() => null);
+        throw err;
+      }
     }
 
     return movement;
@@ -297,20 +347,67 @@ export class StockExitsService {
               CrmMessages.stock.SERIAL_COUNT_MISMATCH,
             );
           }
+
+          const seen = new Set<string>();
+          for (const raw of serials) {
+            const sn = raw.trim().toUpperCase();
+            if (seen.has(sn)) {
+              throw new BadRequestException(
+                CrmMessages.stock.SERIAL_DUPLICATE_IN_INPUT(sn),
+              );
+            }
+            seen.add(sn);
+          }
+
           for (const sn of serials) {
+            const trimmedSn = sn.trim().toUpperCase();
             const serial = await tx.stockItemSerial.findFirst({
               where: {
                 tenantId,
                 stockItemId: stockItem.id,
-                serialNumber: sn.trim().toUpperCase(),
-                status: StockSerialStatus.in_stock,
+                serialNumber: trimmedSn,
               },
             });
+
             if (!serial) {
+              throw new BadRequestException(
+                CrmMessages.stock.SERIAL_NOT_FOUND(trimmedSn),
+              );
+            }
+
+            if (serial.status === StockSerialStatus.sold) {
+              throw new BadRequestException(
+                CrmMessages.stock.SERIAL_ALREADY_SOLD(trimmedSn),
+              );
+            }
+
+            if (serial.status === StockSerialStatus.scrapped) {
+              throw new BadRequestException(
+                CrmMessages.stock.SERIAL_ALREADY_SCRAPPED(trimmedSn),
+              );
+            }
+
+            if (serial.status === StockSerialStatus.transferred) {
+              throw new BadRequestException(
+                CrmMessages.stock.SERIAL_ALREADY_TRANSFERRED(trimmedSn),
+              );
+            }
+
+            if (
+              serial.warehouseId &&
+              serial.warehouseId !== movement.warehouseId
+            ) {
+              throw new BadRequestException(
+                CrmMessages.stock.SERIAL_WRONG_WAREHOUSE(trimmedSn),
+              );
+            }
+
+            if (serial.status !== StockSerialStatus.in_stock) {
               throw new BadRequestException(
                 CrmMessages.stock.SERIAL_NOT_IN_STOCK,
               );
             }
+
             await tx.stockItemSerial.update({
               where: { id: serial.id },
               data: {
@@ -686,6 +783,16 @@ export class StockExitsService {
       const serials = line.serialNumbers ?? [];
       if (serials.length !== Math.round(line.qty)) {
         throw new BadRequestException(CrmMessages.stock.SERIAL_REQUIRED_OUT);
+      }
+      const seen = new Set<string>();
+      for (const raw of serials) {
+        const sn = raw.trim().toUpperCase();
+        if (seen.has(sn)) {
+          throw new BadRequestException(
+            CrmMessages.stock.SERIAL_DUPLICATE_IN_INPUT(sn),
+          );
+        }
+        seen.add(sn);
       }
     }
 

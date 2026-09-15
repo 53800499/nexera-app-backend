@@ -139,61 +139,79 @@ export const CrmMessages = {
       'Une configuration stock existe déjà pour cet article.',
     WAREHOUSE_CODE_EXISTS: 'Ce code entrepôt existe déjà.',
     WAREHOUSE_CODE_IMMUTABLE:
-      "Le code entrepôt ne peut pas être modifié après création.",
+      'Le code entrepôt ne peut pas être modifié après création.',
     WAREHOUSE_HAS_STOCK:
-      'Cet entrepôt contient encore du stock. Transférez le stock avant archivage (RM-E02).',
+      'Cet entrepôt contient encore du stock. Transférez le stock avant archivage.',
     WAREHOUSE_DEFAULT_REQUIRED:
-      'Un entrepôt par défaut est obligatoire. Désignez un autre entrepôt avant (RM-E03).',
+      'Un entrepôt par défaut est obligatoire. Désignez un autre entrepôt principal avant.',
     WAREHOUSE_ARCHIVED:
       'Cet entrepôt est archivé : aucune modification d’emplacement possible.',
     LOCATION_CODE_EXISTS: 'Ce code emplacement existe déjà.',
     LOCATION_CODE_IMMUTABLE:
-      "Le code emplacement et sa hiérarchie ne peuvent pas être modifiés après création (RM-E01).",
+      'Le code emplacement et sa hiérarchie ne peuvent pas être modifiés après création.',
     LOCATION_HIERARCHY_REQUIRED:
       'Zone, allée, rayon et case sont obligatoires pour créer un emplacement.',
     LOCATION_WAREHOUSE_MISMATCH:
       "L'emplacement n'appartient pas à l'entrepôt sélectionné.",
     THRESHOLDS_INVALID:
-      'Seuils incohérents : stock de sécurité ≤ stock minimum ≤ stock maximum (RM-S04).',
+      'Seuils incohérents : stock de sécurité ≤ stock minimum ≤ stock maximum.',
     CONVERSION_FACTOR_INVALID:
       'Le facteur de conversion doit être strictement positif.',
     VALUATION_METHOD_IMMUTABLE:
-      'La méthode de valorisation ne peut pas être modifiée tant que le stock est positif (RM-S01).',
+      'La méthode de valorisation ne peut pas être modifiée tant que le stock est positif.',
     MOVEMENT_NOT_FOUND: 'Mouvement de stock introuvable.',
-    MOVEMENT_ALREADY_VALIDATED: 'Ce mouvement est déjà validé (RM-IN05).',
+    MOVEMENT_ALREADY_VALIDATED: 'Ce mouvement a déjà été validé.',
     MOVEMENT_CANCELLED: 'Ce mouvement est annulé.',
     MOVEMENT_NOT_ENTRY: "Ce mouvement n'est pas une entrée de stock.",
     QTY_POSITIVE_REQUIRED:
-      'La quantité reçue doit être strictement supérieure à 0 (RM-IN02).',
+      'La quantité doit être strictement supérieure à 0.',
     QTY_ACTUAL_EXCEEDS:
       'La quantité acceptée ne peut pas dépasser la quantité reçue.',
     UNIT_COST_NEGATIVE: 'Le coût unitaire ne peut pas être négatif.',
     REASON_REQUIRED:
       'Un motif est obligatoire pour un ajustement positif.',
     LOT_REQUIRED:
-      'Un numéro de lot est obligatoire pour cet article (RM-S02).',
+      'Un numéro de lot est obligatoire pour cet article.',
     LOT_DUPLICATE:
-      'Ce numéro de lot a déjà été réceptionné pour cet article (RM-IN04).',
+      'Ce numéro de lot a déjà été réceptionné pour cet article.',
     SERIAL_COUNT_MISMATCH:
-      'Le nombre de numéros de série doit correspondre à la quantité acceptée.',
+      'Le nombre de numéros de série saisis doit correspondre exactement à la quantité.',
     EXPIRY_REQUIRED:
       'La date de péremption est obligatoire pour cet article.',
     INITIAL_ENTRY_ONCE:
       'Le stock initial ne peut être saisi qu’une seule fois par article.',
     INSUFFICIENT_STOCK:
-      'Stock insuffisant pour cette sortie (RM-OUT01).',
+      'Quantité en stock insuffisante pour effectuer cette sortie.',
     COST_CENTER_REQUIRED:
       'Le centre de coût est obligatoire pour une sortie consommation.',
     LOSS_REASON_REQUIRED:
       'Un motif détaillé est obligatoire pour une perte / ajustement négatif.',
     LOSS_REQUIRES_APPROVAL:
-      'Cette perte dépasse le seuil paramétré : validation responsable requise (RM-OUT04). Enregistrez en brouillon puis validez.',
+      'Cette perte dépasse le seuil autorisé : validation par un responsable requise. Enregistrez en brouillon puis demandez la validation.',
     LOT_REQUIRED_OUT:
-      'Le lot à sortir doit être précisé pour cet article (RM-OUT05).',
+      'Veuillez sélectionner le lot à sortir pour cet article.',
     SERIAL_REQUIRED_OUT:
-      'Les numéros de série à sortir doivent être précisés (RM-OUT05).',
+      'Veuillez renseigner les numéros de série correspondant aux articles à sortir.',
     SERIAL_NOT_IN_STOCK:
       'Un ou plusieurs numéros de série ne sont pas disponibles en stock.',
+    SERIAL_ALREADY_EXISTS: (sn: string) =>
+      `Le numéro de série « ${sn} » a déjà été enregistré pour cet article.`,
+    SERIAL_DUPLICATE_IN_INPUT: (sn: string) =>
+      `Le numéro de série « ${sn} » est saisi plusieurs fois dans votre liste.`,
+    SERIAL_NOT_FOUND: (sn: string) =>
+      `Le numéro de série « ${sn} » n'existe pas dans le stock de cet article.`,
+    SERIAL_ALREADY_SOLD: (sn: string) =>
+      `Le numéro de série « ${sn} » a déjà été vendu ou sorti du stock.`,
+    SERIAL_ALREADY_SCRAPPED: (sn: string) =>
+      `Le numéro de série « ${sn} » a déjà été mis au rebut.`,
+    SERIAL_ALREADY_TRANSFERRED: (sn: string) =>
+      `Le numéro de série « ${sn} » a déjà été transféré.`,
+    SERIAL_WRONG_WAREHOUSE: (sn: string) =>
+      `Le numéro de série « ${sn} » se trouve dans un autre entrepôt.`,
+    DRAFT_LINE_NOT_FOUND:
+      'Ligne de mouvement introuvable dans ce brouillon.',
+    DRAFT_ONLY_ACTION:
+      'Cette modification est autorisée uniquement sur un mouvement en brouillon.',
     MOVEMENT_NOT_EXIT: "Ce mouvement n'est pas une sortie de stock.",
     EXIT_ALREADY_FOR_INVOICE:
       'Une sortie de stock existe déjà pour cette facture.',
@@ -219,7 +237,7 @@ export const CrmMessages = {
     INVENTORY_RECOUNT_INCOMPLETE:
       'Les lignes en double comptage doivent être saisies (2e comptage).',
     INVENTORY_MOVEMENTS_FROZEN:
-      'Mouvements bloqués : un inventaire est en cours sur cet entrepôt (RM-INV01).',
+      'Les mouvements de stock sont temporairement bloqués car un inventaire est en cours sur cet entrepôt.',
     INVENTORY_CATEGORY_REQUIRED:
       'Une catégorie est obligatoire pour un inventaire partiel.',
     ALERT_NOT_FOUND: 'Alerte stock introuvable.',

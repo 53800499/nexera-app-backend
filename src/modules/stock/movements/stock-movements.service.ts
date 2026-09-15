@@ -22,6 +22,7 @@ import {
   CreateStockEntryLineDto,
   StockEntryTypeDto,
 } from './dto/create-stock-entry.dto';
+import { UpdateDraftSerialsDto } from './dto/update-draft-serials.dto';
 import { StockIntegrationService } from '../stock-integration.service';
 import { InventoryFreezeGuard } from '../inventory/inventory-freeze.guard';
 import { toIntegrationAlertLevel } from '../events/stock.events';
@@ -172,7 +173,16 @@ export class StockMovementsService {
     });
 
     if (dto.validate) {
-      return this.validateEntry(movement.id, tenantId, userId);
+      try {
+        return await this.validateEntry(movement.id, tenantId, userId);
+      } catch (err) {
+        await this.prisma.stockMovement
+          .delete({
+            where: { id: movement.id },
+          })
+          .catch(() => null);
+        throw err;
+      }
     }
 
     return movement;
@@ -286,12 +296,38 @@ export class StockMovementsService {
               CrmMessages.stock.SERIAL_COUNT_MISMATCH,
             );
           }
+
+          const seen = new Set<string>();
+          for (const raw of serials) {
+            const sn = raw.trim().toUpperCase();
+            if (seen.has(sn)) {
+              throw new BadRequestException(
+                CrmMessages.stock.SERIAL_DUPLICATE_IN_INPUT(sn),
+              );
+            }
+            seen.add(sn);
+          }
+
           for (const serialNumber of serials) {
+            const sn = serialNumber.trim().toUpperCase();
+            const existing = await tx.stockItemSerial.findFirst({
+              where: {
+                tenantId,
+                stockItemId: stockItem.id,
+                serialNumber: sn,
+              },
+            });
+            if (existing) {
+              throw new BadRequestException(
+                CrmMessages.stock.SERIAL_ALREADY_EXISTS(sn),
+              );
+            }
+
             const created = await tx.stockItemSerial.create({
               data: {
                 tenantId,
                 stockItemId: stockItem.id,
-                serialNumber: serialNumber.trim().toUpperCase(),
+                serialNumber: sn,
                 lotId,
                 status: StockSerialStatus.in_stock,
                 warehouseId: movement.warehouseId,
@@ -609,6 +645,36 @@ export class StockMovementsService {
       ) {
         throw new BadRequestException(CrmMessages.stock.SERIAL_COUNT_MISMATCH);
       }
+
+      if (line.serialNumbers && line.serialNumbers.length > 0) {
+        const seen = new Set<string>();
+        for (const raw of line.serialNumbers) {
+          const sn = raw.trim().toUpperCase();
+          if (!sn) continue;
+          if (seen.has(sn)) {
+            throw new BadRequestException(
+              CrmMessages.stock.SERIAL_DUPLICATE_IN_INPUT(sn),
+            );
+          }
+          seen.add(sn);
+        }
+
+        for (const sn of seen) {
+          const existing = await this.prisma.stockItemSerial.findFirst({
+            where: {
+              tenantId,
+              stockItemId: stockItem.id,
+              serialNumber: sn,
+            },
+            select: { id: true, serialNumber: true },
+          });
+          if (existing) {
+            throw new BadRequestException(
+              CrmMessages.stock.SERIAL_ALREADY_EXISTS(existing.serialNumber),
+            );
+          }
+        }
+      }
     }
 
     if (line.locationId) {
@@ -635,5 +701,134 @@ export class StockMovementsService {
       return StockAlertLevel.warning;
     }
     return StockAlertLevel.ok;
+  }
+
+  async updateDraftSerials(
+    movementId: string,
+    tenantId: string,
+    dto: UpdateDraftSerialsDto,
+  ) {
+    const movement = await this.prisma.stockMovement.findFirst({
+      where: { id: movementId, tenantId },
+      include: movementInclude,
+    });
+    if (!movement) {
+      throw new NotFoundException(CrmMessages.stock.MOVEMENT_NOT_FOUND);
+    }
+    if (movement.status !== StockMovementStatus.draft) {
+      throw new BadRequestException(CrmMessages.stock.DRAFT_ONLY_ACTION);
+    }
+
+    const line = movement.lines.find((l) => l.id === dto.lineId);
+    if (!line) {
+      throw new NotFoundException(CrmMessages.stock.DRAFT_LINE_NOT_FOUND);
+    }
+
+    const stockItem = await this.prisma.stockItem.findFirst({
+      where: { id: line.stockItemId, tenantId },
+    });
+    if (!stockItem) {
+      throw new NotFoundException(CrmMessages.stock.STOCK_ITEM_NOT_FOUND);
+    }
+
+    const expectedQty = Math.round(line.qtyActual || line.qtyPlanned);
+    const cleanedSerials = (dto.serialNumbers || [])
+      .map((s) => s.trim().toUpperCase())
+      .filter(Boolean);
+
+    if (stockItem.trackSerials && cleanedSerials.length !== expectedQty) {
+      throw new BadRequestException(CrmMessages.stock.SERIAL_COUNT_MISMATCH);
+    }
+
+    const seen = new Set<string>();
+    for (const sn of cleanedSerials) {
+      if (seen.has(sn)) {
+        throw new BadRequestException(
+          CrmMessages.stock.SERIAL_DUPLICATE_IN_INPUT(sn),
+        );
+      }
+      seen.add(sn);
+    }
+
+    const isExit = (movement.movementType as string).startsWith('OUT_');
+    if (isExit && stockItem.trackSerials) {
+      for (const sn of cleanedSerials) {
+        const serial = await this.prisma.stockItemSerial.findFirst({
+          where: {
+            tenantId,
+            stockItemId: stockItem.id,
+            serialNumber: sn,
+          },
+        });
+        if (!serial) {
+          throw new BadRequestException(CrmMessages.stock.SERIAL_NOT_FOUND(sn));
+        }
+        if (serial.status === StockSerialStatus.sold) {
+          throw new BadRequestException(
+            CrmMessages.stock.SERIAL_ALREADY_SOLD(sn),
+          );
+        }
+        if (serial.status === StockSerialStatus.scrapped) {
+          throw new BadRequestException(
+            CrmMessages.stock.SERIAL_ALREADY_SCRAPPED(sn),
+          );
+        }
+        if (serial.status === StockSerialStatus.transferred) {
+          throw new BadRequestException(
+            CrmMessages.stock.SERIAL_ALREADY_TRANSFERRED(sn),
+          );
+        }
+        if (serial.warehouseId && serial.warehouseId !== movement.warehouseId) {
+          throw new BadRequestException(
+            CrmMessages.stock.SERIAL_WRONG_WAREHOUSE(sn),
+          );
+        }
+        if (serial.status !== StockSerialStatus.in_stock) {
+          throw new BadRequestException(CrmMessages.stock.SERIAL_NOT_IN_STOCK);
+        }
+      }
+    }
+
+    if (!isExit && stockItem.trackSerials) {
+      for (const sn of cleanedSerials) {
+        const existing = await this.prisma.stockItemSerial.findFirst({
+          where: {
+            tenantId,
+            stockItemId: stockItem.id,
+            serialNumber: sn,
+          },
+        });
+        if (existing) {
+          throw new BadRequestException(
+            CrmMessages.stock.SERIAL_ALREADY_EXISTS(sn),
+          );
+        }
+      }
+    }
+
+    await this.prisma.stockMovementLine.update({
+      where: { id: line.id },
+      data: { serialNumbers: cleanedSerials },
+    });
+
+    return this.findOne(movementId, tenantId);
+  }
+
+  async deleteDraftMovement(movementId: string, tenantId: string) {
+    const movement = await this.prisma.stockMovement.findFirst({
+      where: { id: movementId, tenantId },
+    });
+    if (!movement) {
+      throw new NotFoundException(CrmMessages.stock.MOVEMENT_NOT_FOUND);
+    }
+    if (movement.status !== StockMovementStatus.draft) {
+      throw new BadRequestException(CrmMessages.stock.DRAFT_ONLY_ACTION);
+    }
+
+    await this.prisma.stockMovement.delete({
+      where: { id: movementId },
+    });
+
+    return { success: true };
   }
 }
