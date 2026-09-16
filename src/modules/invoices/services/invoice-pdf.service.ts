@@ -9,6 +9,8 @@ import {
 } from '../../../shared/pdf/document-pdf.builder';
 import { PdfAddress } from '../../../shared/pdf/document-pdf.types';
 import { InvoiceType } from '../enums/invoice-type.enum';
+import { InvoiceNormalizationStatus } from '../enums/mecef.enum';
+import * as QRCode from 'qrcode';
 
 @Injectable()
 export class InvoicePdfService {
@@ -62,6 +64,23 @@ export class InvoicePdfService {
         ? invoice.issueDate
         : invoice.cancelledAt ?? invoice.sentAt ?? invoice.issueDate;
 
+    const isNormalized =
+      invoice.normalizationStatus === InvoiceNormalizationStatus.NORMALIZED &&
+      Boolean(invoice.mecefCode);
+
+    let qrCodeBuffer: Buffer | null = null;
+    if (isNormalized && invoice.mecefQrCodeData) {
+      try {
+        qrCodeBuffer = await QRCode.toBuffer(invoice.mecefQrCodeData, {
+          errorCorrectionLevel: 'M',
+          margin: 1,
+          width: 240,
+        });
+      } catch {
+        // En cas d'erreur de rendu du QR code, le PDF continue avec le code textuel
+      }
+    }
+
     const lines = invoice.lines.map((line) => ({
       position: line.position,
       description: line.description,
@@ -70,6 +89,7 @@ export class InvoicePdfService {
       lineTotalHt: line.lineTotalHt,
       taxRate: line.taxRate?.rate ?? 0,
       taxRateName: line.taxRate?.name,
+      taxGroup: line.taxGroup ?? line.taxRate?.taxGroup ?? null,
       taxAmount: line.taxAmount,
       lineTotalTtc: line.lineTotalTtc,
     }));
@@ -78,10 +98,14 @@ export class InvoicePdfService {
 
     const documentLabel =
       invoice.invoiceType === InvoiceType.CREDIT_NOTE
-        ? 'Avoir'
+        ? isNormalized
+          ? "Facture d'avoir normalisée"
+          : 'Avoir'
         : invoice.invoiceType === InvoiceType.PROFORMA
           ? 'Facture proforma'
-          : 'Facture';
+          : isNormalized
+            ? 'Facture de vente normalisée'
+            : 'Facture';
 
     const companyAddress = settings.companyAddress as PdfAddress | null;
 
@@ -138,6 +162,19 @@ export class InvoicePdfService {
       acceptedPaymentMethods: settings.acceptedPaymentMethods,
       latePaymentMention,
       notes: invoice.notes,
+      mecef: isNormalized
+        ? {
+            nim: invoice.mecefNim ?? 'N/A',
+            counters: invoice.mecefCounters ?? 'N/A',
+            codeMECeF: invoice.mecefCode!,
+            qrCodeBuffer,
+            qrCodeData: invoice.mecefQrCodeData,
+            normalizedAt: invoice.mecefNormalizedAt ?? invoice.issueDate,
+            aibAmount: invoice.mecefAibAmount ?? 0,
+            aibType: invoice.mecefAibType,
+            originalMecefCode: invoice.originalMecefCode,
+          }
+        : null,
       template: {
         logoUrl: pdfTemplate.logoUrl,
         primaryColor: pdfTemplate.primaryColor,

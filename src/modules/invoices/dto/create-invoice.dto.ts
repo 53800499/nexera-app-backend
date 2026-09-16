@@ -14,6 +14,7 @@ import {
   ValidateNested,
 } from 'class-validator';
 import { InvoiceType } from '../enums/invoice-type.enum';
+import { MecefAibType } from '../enums/mecef.enum';
 import { InvoiceLineDto } from './invoice-line.dto';
 
 export class CreateInvoiceDto {
@@ -92,6 +93,15 @@ export class CreateInvoiceDto {
   @IsString()
   @IsOptional()
   internalNotes?: string;
+
+  @ApiPropertyOptional({
+    enum: MecefAibType,
+    default: MecefAibType.NONE,
+    description: 'Type AIB e-MECeF (NONE, A=1%, B=5%)',
+  })
+  @IsEnum(MecefAibType)
+  @IsOptional()
+  mecefAibType?: MecefAibType;
 
   @ApiProperty({ type: [InvoiceLineDto] })
   @IsArray()

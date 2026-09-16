@@ -21,6 +21,20 @@ export function formatDateFr(d: Date): string {
   });
 }
 
+export function formatDateTimeFr(d: Date): string {
+  const dateStr = d.toLocaleDateString('fr-FR', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+  });
+  const timeStr = d.toLocaleTimeString('fr-FR', {
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  });
+  return `${dateStr} ${timeStr}`;
+}
+
 export function formatMoney(amount: number, currency: string): string {
   const code = currency?.trim().length === 3 ? currency.toUpperCase() : 'EUR';
   try {

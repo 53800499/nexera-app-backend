@@ -6,6 +6,7 @@ import { PdfDocumentInput } from './document-pdf.types';
 import { resolvePdfFont } from './pdf-fonts';
 import {
   formatDateFr,
+  formatDateTimeFr,
   formatMoney,
   formatQuantity,
   lightenHex,
@@ -32,25 +33,46 @@ function formatAddress(addr?: {
 }
 
 export function buildTaxBreakdown(
-  lines: Array<{ lineTotalHt: number; taxRate: number; taxRateName?: string }>,
+  lines: Array<{
+    lineTotalHt: number;
+    taxRate: number;
+    taxRateName?: string;
+    taxGroup?: string | null;
+  }>,
   baseHt: number,
-): Array<{ rate: number; rateName?: string; baseHt: number; taxAmount: number }> {
-  const byRate = new Map<number, { name?: string; ht: number }>();
+): Array<{
+  rate: number;
+  rateName?: string;
+  taxGroup?: string | null;
+  baseHt: number;
+  taxAmount: number;
+}> {
+  const byKey = new Map<
+    string,
+    { rate: number; name?: string; taxGroup?: string | null; ht: number }
+  >();
   for (const line of lines) {
-    const entry = byRate.get(line.taxRate) ?? { name: line.taxRateName, ht: 0 };
+    const key = `${line.taxGroup ?? ''}-${line.taxRate}`;
+    const entry = byKey.get(key) ?? {
+      rate: line.taxRate,
+      name: line.taxRateName,
+      taxGroup: line.taxGroup,
+      ht: 0,
+    };
     entry.ht += line.lineTotalHt;
     if (line.taxRateName) entry.name = line.taxRateName;
-    byRate.set(line.taxRate, entry);
+    byKey.set(key, entry);
   }
 
   const subtotal = lines.reduce((s, l) => s + l.lineTotalHt, 0);
-  return [...byRate.entries()].map(([rate, group]) => {
+  return [...byKey.values()].map((group) => {
     const share = subtotal > 0 ? group.ht / subtotal : 0;
     const groupBase = Math.round(baseHt * share * 100) / 100;
-    const taxAmount = Math.round(groupBase * (rate / 100) * 100) / 100;
+    const taxAmount = Math.round(groupBase * (group.rate / 100) * 100) / 100;
     return {
-      rate,
+      rate: group.rate,
       rateName: group.name,
+      taxGroup: group.taxGroup,
       baseHt: groupBase,
       taxAmount,
     };
@@ -382,9 +404,11 @@ export async function generateDocumentPdf(
           .lineWidth(0.25)
           .stroke();
 
-        const taxLabel = line.taxRateName
-          ? `${line.taxRate}%`
-          : `${line.taxRate}%`;
+        const taxLabel = line.taxGroup
+          ? `Gr. ${line.taxGroup} (${line.taxRate} %)`
+          : line.taxRateName
+            ? `${line.taxRate} %`
+            : `${line.taxRate} %`;
         const values: Record<string, string> = {
           desc,
           qty: formatQuantity(line.quantity),
@@ -430,10 +454,20 @@ export async function generateDocumentPdf(
       }
       rows.push(['Base HT', formatMoney(input.baseHt, input.currency)]);
       for (const tax of input.taxBreakdown) {
-        const label = tax.rateName
-          ? `TVA ${tax.rateName} (${tax.rate} %)`
-          : `TVA ${tax.rate} %`;
+        const label = tax.taxGroup
+          ? `TVA Gr. ${tax.taxGroup} (${tax.rate} %)`
+          : tax.rateName
+            ? `TVA ${tax.rateName} (${tax.rate} %)`
+            : `TVA ${tax.rate} %`;
         rows.push([label, formatMoney(tax.taxAmount, input.currency)]);
+      }
+
+      if (input.mecef?.aibAmount && input.mecef.aibAmount > 0) {
+        const aibRate = input.mecef.aibType === 'B' ? '5 %' : '1 %';
+        rows.push([
+          `Acompte AIB (${aibRate})`,
+          formatMoney(input.mecef.aibAmount, input.currency),
+        ]);
       }
 
       const rowH = 16;
@@ -483,7 +517,129 @@ export async function generateDocumentPdf(
           align: 'right',
         });
 
-      doc.y = y + panelH + 18;
+      if (input.mecef?.aibAmount && input.mecef.aibAmount > 0) {
+        const netPayable = input.totalTtc + input.mecef.aibAmount;
+        doc
+          .font(boldFont)
+          .fontSize(9)
+          .fillColor(primary)
+          .text('Net à payer (TTC + AIB)', panelX + 12, rowY + 26, {
+            width: 120,
+          });
+        doc
+          .font(boldFont)
+          .fontSize(9)
+          .fillColor(PDF_COLORS.text)
+          .text(formatMoney(netPayable, input.currency), panelX + 12, rowY + 26, {
+            width: panelW - 24,
+            align: 'right',
+          });
+        doc.y = y + panelH + 34;
+      } else {
+        doc.y = y + panelH + 18;
+      }
+    };
+
+    const drawMecefCartouche = () => {
+      if (!input.mecef) return;
+
+      const cartoucheH = input.mecef.originalMecefCode ? 104 : 92;
+      let y = doc.y;
+      if (y + cartoucheH > contentBottom()) {
+        doc.addPage();
+        drawBrandStrip();
+        y = margin + 12;
+      }
+
+      const boxW = contentWidth;
+      const borderColor = '#16a34a';
+      const bgColor = '#f0fdf4';
+      const darkGreen = '#15803d';
+
+      doc.roundedRect(margin, y, boxW, cartoucheH, 6).fill(bgColor);
+      doc
+        .roundedRect(margin, y, boxW, cartoucheH, 6)
+        .lineWidth(1)
+        .strokeColor(borderColor);
+
+      // Bandeau titre vert DGI
+      doc.roundedRect(margin, y, boxW, 20, 6).fill(darkGreen);
+      doc.rect(margin, y + 10, boxW, 10).fill(darkGreen);
+
+      doc
+        .font(boldFont)
+        .fontSize(8.5)
+        .fillColor(PDF_COLORS.white)
+        .text(
+          'FACTURE NORMALISÉE — DIRECTION GÉNÉRALE DES IMPÔTS (DGI BÉNIN)',
+          margin,
+          y + 6,
+          { width: boxW, align: 'center' },
+        );
+
+      const contentY = y + 26;
+      const qrSize = cartoucheH - 34;
+      const qrX = margin + 12;
+
+      if (input.mecef.qrCodeBuffer) {
+        try {
+          doc.image(input.mecef.qrCodeBuffer, qrX, contentY, {
+            fit: [qrSize, qrSize],
+          });
+        } catch {
+          // fallback
+        }
+      } else {
+        doc
+          .rect(qrX, contentY, qrSize, qrSize)
+          .lineWidth(0.5)
+          .strokeColor(borderColor);
+        doc
+          .font(font)
+          .fontSize(7)
+          .fillColor(PDF_COLORS.textMuted)
+          .text('QR CODE DGI', qrX + 2, contentY + 24, {
+            width: qrSize - 4,
+            align: 'center',
+          });
+      }
+
+      const textX = qrX + qrSize + 16;
+      const textW = boxW - (textX - margin) - 12;
+      let textY = contentY + 2;
+      const lineGap = 12;
+
+      const renderLine = (label: string, value: string, isBoldValue = false) => {
+        doc
+          .font(boldFont)
+          .fontSize(7.5)
+          .fillColor(darkGreen)
+          .text(label, textX, textY, { width: 140 });
+        doc
+          .font(isBoldValue ? boldFont : font)
+          .fontSize(7.5)
+          .fillColor(isBoldValue ? '#0f172a' : PDF_COLORS.text)
+          .text(value, textX + 140, textY, { width: textW - 140 });
+        textY += lineGap;
+      };
+
+      renderLine('NIM (Machine) :', input.mecef.nim);
+      renderLine('Compteurs (MC/TC) :', input.mecef.counters);
+      renderLine('Code MECeF (DGI) :', input.mecef.codeMECeF, true);
+      const formattedDate = input.mecef.normalizedAt
+        ? formatDateTimeFr(new Date(input.mecef.normalizedAt))
+        : 'N/A';
+      renderLine('Date & Heure certification :', formattedDate);
+
+      if (input.mecef.originalMecefCode) {
+        renderLine(
+          'Facture d’origine (MECeF) :',
+          input.mecef.originalMecefCode,
+          true,
+        );
+      }
+
+      doc.y = y + cartoucheH + 14;
     };
 
     const drawInfoBlocks = () => {
@@ -541,6 +697,7 @@ export async function generateDocumentPdf(
         drawPartyCards();
         drawTable();
         drawTotals();
+        drawMecefCartouche();
         drawInfoBlocks();
 
         const range = doc.bufferedPageRange();

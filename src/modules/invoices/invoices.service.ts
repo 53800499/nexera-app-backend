@@ -44,6 +44,9 @@ import { DocumentAccessService } from '../documents/services/document-access.ser
 import { EmailTrackingService } from '../documents/services/email-tracking.service';
 import { computeDueDateFromPaymentTerm } from '../settings/utils/due-date.util';
 import { buildDocumentPreviewResponse } from '../../shared/pdf/document-preview.util';
+import { MecefClientService } from './services/mecef-client.service';
+import { NormalizeInvoiceDto, UpdateMecefConfigDto } from './dto/mecef.dto';
+import { MecefAibType, MecefTaxGroup } from './enums/mecef.enum';
 
 type ResolvedLine = {
   position: number;
@@ -54,6 +57,7 @@ type ResolvedLine = {
   discountPct: number;
   discountAmount: number;
   taxRateId: string;
+  taxGroup?: MecefTaxGroup;
   lineTotalHt: number;
   taxAmount: number;
   lineTotalTtc: number;
@@ -72,6 +76,7 @@ export class InvoicesService {
     private readonly documentAccessService: DocumentAccessService,
     private readonly emailTrackingService: EmailTrackingService,
     private readonly auditService: AuditService,
+    private readonly mecefClientService: MecefClientService,
   ) {}
 
   private readonly invoiceInclude = {
@@ -174,6 +179,7 @@ export class InvoicesService {
             discountAmount: line.discountAmount,
             lineTotalHt: line.lineTotalHt,
             taxRateId: line.taxRateId,
+            taxGroup: (line.taxGroup as any) ?? undefined,
             taxAmount: line.taxAmount,
             lineTotalTtc: line.lineTotalTtc,
           })),
@@ -482,7 +488,7 @@ export class InvoicesService {
     return this.enrichResponse(updated);
   }
 
-  async issue(id: string, tenantId: string) {
+  async issue(id: string, tenantId: string, userId?: string) {
     const invoice = await this.findOne(id, tenantId);
 
     if (invoice.status !== InvoiceStatus.DRAFT) {
@@ -499,7 +505,7 @@ export class InvoicesService {
     );
 
     const issueDate = new Date();
-    const updated = await this.prisma.invoice.update({
+    let updated = await this.prisma.invoice.update({
       where: { id },
       data: {
         status: InvoiceStatus.ISSUED,
@@ -508,6 +514,33 @@ export class InvoicesService {
       },
       include: this.invoiceInclude,
     });
+
+    // Normalisation e-MECeF automatique si activée sur le tenant
+    const settings = await this.prisma.tenantSettings.findUnique({
+      where: { tenantId },
+    });
+    if (
+      settings?.mecefAutoNormalize &&
+      updated.invoiceType !== InvoiceType.PROFORMA
+    ) {
+      try {
+        await this.mecefClientService.normalizeInvoice(
+          tenantId,
+          id,
+          undefined,
+          userId,
+        );
+        const reloaded = await this.prisma.invoice.findFirst({
+          where: { id, tenantId },
+          include: this.invoiceInclude,
+        });
+        if (reloaded) {
+          updated = reloaded;
+        }
+      } catch {
+        // En cas de panne temporaire du serveur e-MECeF distant, la facture reste émise
+      }
+    }
 
     await this.invoicePdfService.ensureGenerated(tenantId, id);
 
@@ -1039,8 +1072,14 @@ export class InvoicesService {
           );
         }
 
+        const resolvedTaxGroup =
+          line.taxGroup ?? (taxRate.taxGroup as MecefTaxGroup) ?? MecefTaxGroup.B;
+
         return {
-          meta: line,
+          meta: {
+            ...line,
+            taxGroup: resolvedTaxGroup,
+          },
           input: {
             quantity: line.quantity,
             unitPriceHt: line.unitPriceHt,
@@ -1069,6 +1108,7 @@ export class InvoicesService {
         discountPct: inputs[index].meta.discountPct ?? 0,
         discountAmount: inputs[index].meta.discountAmount ?? 0,
         taxRateId: inputs[index].meta.taxRateId,
+        taxGroup: inputs[index].meta.taxGroup,
         lineTotalHt: line.lineTotalHt,
         taxAmount: line.taxAmount,
         lineTotalTtc: line.lineTotalTtc,
@@ -1333,5 +1373,28 @@ export class InvoicesService {
 
     if (notes?.includes(mention)) return notes;
     return notes ? `${notes}\n\n${mention}` : mention;
+  }
+
+  async normalize(
+    id: string,
+    tenantId: string,
+    dto?: NormalizeInvoiceDto,
+    userId?: string,
+  ) {
+    const normalized = await this.mecefClientService.normalizeInvoice(
+      tenantId,
+      id,
+      dto,
+      userId,
+    );
+    return this.enrichResponse(normalized);
+  }
+
+  getMecefConfig(tenantId: string) {
+    return this.mecefClientService.getConfig(tenantId);
+  }
+
+  updateMecefConfig(tenantId: string, dto: UpdateMecefConfigDto) {
+    return this.mecefClientService.updateConfig(tenantId, dto);
   }
 }

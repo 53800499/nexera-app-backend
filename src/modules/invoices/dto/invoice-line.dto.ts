@@ -1,5 +1,6 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
+  IsEnum,
   IsNotEmpty,
   IsNumber,
   IsOptional,
@@ -7,6 +8,7 @@ import {
   IsUUID,
   Min,
 } from 'class-validator';
+import { MecefTaxGroup } from '../enums/mecef.enum';
 
 export class InvoiceLineDto {
   @ApiPropertyOptional({ format: 'uuid' })
@@ -45,4 +47,13 @@ export class InvoiceLineDto {
   @IsUUID()
   @IsNotEmpty()
   taxRateId!: string;
+
+  @ApiPropertyOptional({
+    enum: MecefTaxGroup,
+    example: MecefTaxGroup.B,
+    description: 'Groupe fiscal e-MECeF DGI (A=0%, B=18%, C=Export, D=Exonéré spécifique)',
+  })
+  @IsEnum(MecefTaxGroup)
+  @IsOptional()
+  taxGroup?: MecefTaxGroup;
 }

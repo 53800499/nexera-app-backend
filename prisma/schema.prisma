@@ -44,6 +44,33 @@ enum InvoiceStatus {
   cancelled
 }
 
+enum InvoiceNormalizationStatus {
+  not_normalized
+  pending
+  normalized
+  failed
+}
+
+enum MecefTaxGroup {
+  A
+  B
+  C
+  D
+  E
+  F
+}
+
+enum MecefAibType {
+  NONE
+  A
+  B
+}
+
+enum MecefEnvironment {
+  sandbox
+  production
+}
+
 enum QuotationStatus {
   draft
   sent
@@ -446,6 +473,8 @@ model TaxRate {
   name String
   rate Float
 
+  taxGroup MecefTaxGroup @default(B) @map("tax_group")
+
   isDefault Boolean @default(false)
   isActive  Boolean @default(true)
 
@@ -656,6 +685,19 @@ model Invoice {
 
   depositAmount Float?
 
+  // Normalisation DGI e-MECeF
+  normalizationStatus InvoiceNormalizationStatus @default(not_normalized) @map("normalization_status")
+  mecefNim            String?                     @map("mecef_nim")
+  mecefCounters       String?                     @map("mecef_counters")
+  mecefCode           String?                     @map("mecef_code")
+  mecefQrCodeData     String?                     @map("mecef_qr_code_data")
+  mecefTaxGroupTotals Json?                       @map("mecef_tax_group_totals")
+  mecefAibType        MecefAibType                @default(NONE) @map("mecef_aib_type")
+  mecefAibAmount      Float                       @default(0) @map("mecef_aib_amount")
+  mecefNormalizedAt   DateTime?                   @map("mecef_normalized_at")
+  mecefErrorMessage   String?                     @map("mecef_error_message")
+  originalMecefCode   String?                     @map("original_mecef_code")
+
   notes         String?
   internalNotes String?
   pdfUrl        String?
@@ -696,6 +738,7 @@ model InvoiceLine {
 
   taxRateId String?  @map("tax_rate_id")
   taxRate   TaxRate? @relation(fields: [taxRateId], references: [id])
+  taxGroup  MecefTaxGroup? @map("tax_group")
 
   description String
   quantity    Float
@@ -875,6 +918,13 @@ model TenantSettings {
   companyWebsite         String? @map("company_website")
   acceptedPaymentMethods String? @map("accepted_payment_methods")
   cgvText                String? @map("cgv_text")
+
+  // e-MECeF DGI Configuration
+  mecefApiUrl         String?          @map("mecef_api_url")
+  mecefApiKey         String?          @map("mecef_api_key")
+  mecefNim            String?          @map("mecef_nim")
+  mecefEnvironment    MecefEnvironment @default(sandbox) @map("mecef_environment")
+  mecefAutoNormalize  Boolean          @default(false) @map("mecef_auto_normalize")
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")

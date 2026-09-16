@@ -44,6 +44,11 @@ import {
   InvoiceListResponseDto,
   InvoiceResponseDto,
 } from './dto/invoice-response.dto';
+import {
+  MecefConfigResponseDto,
+  NormalizeInvoiceDto,
+  UpdateMecefConfigDto,
+} from './dto/mecef.dto';
 
 @ApiTags('invoices')
 @ApiBearerAuth('access-token')
@@ -110,6 +115,32 @@ export class InvoicesController {
       clientId,
       q,
     );
+  }
+
+  @Get('mecef/config')
+  @Permissions('manage:invoices')
+  @ApiOperation({
+    summary: 'Récupérer la configuration e-MECeF (DGI Bénin) de l’entreprise',
+    description: 'Retourne l’URL de l’API, le NIM, l’environnement actif (sandbox/prod) et l’état de configuration.',
+  })
+  @ApiOkResponse({ type: MecefConfigResponseDto })
+  getMecefConfig(@Request() req: { user: { tenantId: string } }) {
+    return this.invoicesService.getMecefConfig(req.user.tenantId);
+  }
+
+  @Patch('mecef/config')
+  @Permissions('manage:invoices')
+  @ApiOperation({
+    summary: 'Mettre à jour la configuration e-MECeF (DGI Bénin) de l’entreprise',
+    description: 'Permet de renseigner l’URL API DGI, le Token/Clé API secrète, le NIM et l’auto-normalisation.',
+  })
+  @ApiBody({ type: UpdateMecefConfigDto })
+  @ApiOkResponse({ type: MecefConfigResponseDto })
+  updateMecefConfig(
+    @Body() dto: UpdateMecefConfigDto,
+    @Request() req: { user: { tenantId: string } },
+  ) {
+    return this.invoicesService.updateMecefConfig(req.user.tenantId, dto);
   }
 
   @Get(':id/pdf')
@@ -190,15 +221,40 @@ export class InvoicesController {
   @Permissions('manage:invoices')
   @ApiOperation({
     summary: 'Émettre la facture',
-    description: `**RM-F01** — Numéro définitif \`FAC-AAAA-XXXXXX\`, statut \`issued\`, document immuable (RM-F02).`,
+    description: `**RM-F01** — Numéro définitif \`FAC-AAAA-XXXXXX\`, statut \`issued\`, document immuable (RM-F02).
+Normalise automatiquement via l'e-MECeF si l'option \`mecefAutoNormalize\` est activée.`,
   })
   @ApiParam({ name: 'id', format: 'uuid' })
   @ApiOkResponse({ type: InvoiceResponseDto })
   issue(
     @Param('id') id: string,
-    @Request() req: { user: { tenantId: string } },
+    @Request() req: { user: { sub: string; tenantId: string } },
   ) {
-    return this.invoicesService.issue(id, req.user.tenantId);
+    return this.invoicesService.issue(id, req.user.tenantId, req.user.sub);
+  }
+
+  @Post(':id/normalize')
+  @Permissions('manage:invoices')
+  @ApiOperation({
+    summary: 'Normaliser une facture auprès de la DGI (e-MECeF Bénin)',
+    description: `Certifie la facture auprès de la Direction Générale des Impôts (DGI).
+Génère le Code de sécurité MECeF, les compteurs séquentiels MC/TC et le QR Code de contrôle officiel.
+Invalide le cache PDF pour forcer l'intégration du cartouche fiscal certifié.`,
+  })
+  @ApiParam({ name: 'id', format: 'uuid' })
+  @ApiBody({ type: NormalizeInvoiceDto, required: false })
+  @ApiOkResponse({ type: InvoiceResponseDto })
+  normalize(
+    @Param('id') id: string,
+    @Body() dto: NormalizeInvoiceDto,
+    @Request() req: { user: { sub: string; tenantId: string } },
+  ) {
+    return this.invoicesService.normalize(
+      id,
+      req.user.tenantId,
+      dto,
+      req.user.sub,
+    );
   }
 
   @Post(':id/send')

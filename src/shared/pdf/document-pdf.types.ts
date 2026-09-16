@@ -38,6 +38,7 @@ export interface PdfDocumentLine {
   lineTotalHt: number;
   taxRate: number;
   taxRateName?: string;
+  taxGroup?: string | null;
   taxAmount: number;
   lineTotalTtc: number;
 }
@@ -45,8 +46,21 @@ export interface PdfDocumentLine {
 export interface PdfTaxBreakdown {
   rate: number;
   rateName?: string;
+  taxGroup?: string | null;
   baseHt: number;
   taxAmount: number;
+}
+
+export interface PdfMecefInfo {
+  nim: string;
+  counters: string;
+  codeMECeF: string;
+  qrCodeBuffer?: Buffer | null;
+  qrCodeData?: string | null;
+  normalizedAt: Date;
+  aibAmount?: number;
+  aibType?: string | null;
+  originalMecefCode?: string | null;
 }
 
 export interface PdfTemplateConfig {
@@ -84,5 +98,6 @@ export interface PdfDocumentInput {
   latePaymentMention?: string | null;
   notes?: string | null;
   statusLabel?: string | null;
+  mecef?: PdfMecefInfo | null;
   template: PdfTemplateConfig;
 }

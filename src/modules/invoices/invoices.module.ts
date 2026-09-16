@@ -11,6 +11,7 @@ import { RecurringInvoicesScheduler } from './recurring-invoices.scheduler';
 import { RecurringInvoiceNotificationService } from './services/recurring-invoice-notification.service';
 import { InvoicePdfService } from './services/invoice-pdf.service';
 import { InvoiceMailService } from './services/invoice-mail.service';
+import { MecefClientService } from './services/mecef-client.service';
 import { InvoiceEventBus } from './events/invoice-event-bus';
 import { InvoiceDomainEventHandler } from './handlers/invoice-domain-event.handler';
 
@@ -24,6 +25,7 @@ import { InvoiceDomainEventHandler } from './handlers/invoice-domain-event.handl
     RecurringInvoiceNotificationService,
     InvoicePdfService,
     InvoiceMailService,
+    MecefClientService,
     InvoiceDomainEventHandler,
     {
       provide: InvoiceEventBus,
@@ -35,6 +37,6 @@ import { InvoiceDomainEventHandler } from './handlers/invoice-domain-event.handl
       inject: [InvoiceDomainEventHandler],
     },
   ],
-  exports: [InvoicesService, InvoicePdfService],
+  exports: [InvoicesService, InvoicePdfService, MecefClientService],
 })
 export class InvoicesModule {}

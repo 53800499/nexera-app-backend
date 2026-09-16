@@ -1,6 +1,10 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { InvoiceStatus } from '../enums/invoice-status.enum';
 import { InvoiceType } from '../enums/invoice-type.enum';
+import {
+  InvoiceNormalizationStatus,
+  MecefAibType,
+} from '../enums/mecef.enum';
 
 export class InvoiceDepositSummaryDto {
   @ApiProperty()
@@ -46,6 +50,42 @@ export class InvoiceResponseDto {
 
   @ApiPropertyOptional({ type: InvoiceDepositSummaryDto })
   deposits?: InvoiceDepositSummaryDto;
+
+  @ApiProperty({
+    enum: InvoiceNormalizationStatus,
+    example: InvoiceNormalizationStatus.NOT_NORMALIZED,
+  })
+  normalizationStatus!: InvoiceNormalizationStatus;
+
+  @ApiPropertyOptional({ example: 'TEST01000001' })
+  mecefNim?: string | null;
+
+  @ApiPropertyOptional({ example: '12/45 FV' })
+  mecefCounters?: string | null;
+
+  @ApiPropertyOptional({ example: 'F12A-B34C-D56E-F78G-H90I' })
+  mecefCode?: string | null;
+
+  @ApiPropertyOptional({ example: 'https://mecef.impots.bj/verify/...' })
+  mecefQrCodeData?: string | null;
+
+  @ApiPropertyOptional()
+  mecefTaxGroupTotals?: Record<string, any> | null;
+
+  @ApiProperty({ enum: MecefAibType, example: MecefAibType.NONE })
+  mecefAibType!: MecefAibType;
+
+  @ApiProperty({ example: 0 })
+  mecefAibAmount!: number;
+
+  @ApiPropertyOptional()
+  mecefNormalizedAt?: Date | null;
+
+  @ApiPropertyOptional()
+  mecefErrorMessage?: string | null;
+
+  @ApiPropertyOptional()
+  originalMecefCode?: string | null;
 }
 
 export class InvoiceListResponseDto {
