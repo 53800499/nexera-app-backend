@@ -66,9 +66,9 @@ export class ReferentielService {
   }
 
   // BAREMES ITS
-  async getBaremesIts(paysCode = 'BJ') {
+  async getBaremesIts(paysCode?: string) {
     return this.prisma.rhBaremeIts.findMany({
-      where: { paysCode },
+      where: paysCode ? { paysCode } : {},
       include: {
         tranches: {
           orderBy: { numeroTranche: 'asc' },
@@ -79,25 +79,34 @@ export class ReferentielService {
   }
 
   // CHARGES SOCIALES & PATRONALES
-  async getSocialCharges(paysCode = 'BJ') {
+  async getSocialCharges(paysCode?: string) {
     return this.prisma.rhTauxChargeSociale.findMany({
-      where: { paysCode, actif: true },
+      where: {
+        ...(paysCode ? { paysCode } : {}),
+        actif: true,
+      },
       orderBy: { code: 'asc' },
     });
   }
 
   // JOURS FERIES
-  async getPublicHolidays(paysCode = 'BJ', annee = 2026) {
+  async getPublicHolidays(paysCode?: string, annee?: number) {
     return this.prisma.rhJourFerie.findMany({
-      where: { paysCode, annee },
+      where: {
+        ...(paysCode ? { paysCode } : {}),
+        ...(annee ? { annee } : {}),
+      },
       orderBy: { dateJour: 'asc' },
     });
   }
 
   // CONVENTIONS & GRILLES
-  async getCollectiveAgreements(paysCode = 'BJ') {
+  async getCollectiveAgreements(paysCode?: string) {
     return this.prisma.rhConventionCollective.findMany({
-      where: { paysCode, actif: true },
+      where: {
+        ...(paysCode ? { paysCode } : {}),
+        actif: true,
+      },
       include: {
         categories: {
           where: { actif: true },
@@ -113,25 +122,31 @@ export class ReferentielService {
   }
 
   // PARAMETRES PAYS
-  async getCountryParams(paysCode = 'BJ') {
+  async getCountryParams(paysCode?: string) {
     return this.prisma.rhParametrePays.findMany({
-      where: { paysCode },
+      where: paysCode ? { paysCode } : {},
       orderBy: { codeParametre: 'asc' },
     });
   }
 
   // TYPES D'ABSENCE
-  async getLeaveTypes(paysCode = 'BJ') {
+  async getLeaveTypes(paysCode?: string) {
     return this.prisma.rhTypeAbsence.findMany({
-      where: { paysCode, actif: true },
+      where: {
+        ...(paysCode ? { paysCode } : {}),
+        actif: true,
+      },
       orderBy: { code: 'asc' },
     });
   }
 
   // CATALOGUE RUBRIQUES PAIE
-  async getPayrollRubrics(paysCode = 'BJ') {
+  async getPayrollRubrics(paysCode?: string) {
     return this.prisma.rhRubriquePaie.findMany({
-      where: { paysCode, actif: true },
+      where: {
+        ...(paysCode ? { paysCode } : {}),
+        actif: true,
+      },
       orderBy: { ordreAffichage: 'asc' },
     });
   }

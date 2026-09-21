@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Param,
   Patch,
@@ -27,6 +28,7 @@ import {
   CreateElementVariableDto,
   CreateRemunerationExceptionnelleDto,
   CreateRubriquePaieDto,
+  UpdateRubriquePaieDto,
   CreateSoldeToutCompteDto,
   OpenCyclePaieDto,
   SignerSoldeToutCompteDto,
@@ -80,6 +82,33 @@ export class PaieController {
   @ApiResponse({ status: 201, description: 'Rubrique de paie créée' })
   createRubrique(@Body() dto: CreateRubriquePaieDto) {
     return this.paieService.createRubrique(dto);
+  }
+
+  /**
+   * Modifier une rubrique de paie
+   */
+  @Patch('rubriques/:id')
+  @Permissions('manage:rh')
+  @ApiOperation({ summary: 'Modifier une rubrique de paie' })
+  @ApiParam({ name: 'id', description: 'Identifiant UUID de la rubrique' })
+  @ApiResponse({ status: 200, description: 'Rubrique de paie modifiée' })
+  updateRubrique(
+    @Param('id') id: string,
+    @Body() dto: UpdateRubriquePaieDto,
+  ) {
+    return this.paieService.updateRubrique(id, dto);
+  }
+
+  /**
+   * Supprimer ou désactiver une rubrique de paie
+   */
+  @Delete('rubriques/:id')
+  @Permissions('manage:rh')
+  @ApiOperation({ summary: 'Supprimer ou désactiver une rubrique de paie' })
+  @ApiParam({ name: 'id', description: 'Identifiant UUID de la rubrique' })
+  @ApiResponse({ status: 200, description: 'Rubrique de paie supprimée ou désactivée' })
+  deleteRubrique(@Param('id') id: string) {
+    return this.paieService.deleteRubrique(id);
   }
 
   // =========================================================================

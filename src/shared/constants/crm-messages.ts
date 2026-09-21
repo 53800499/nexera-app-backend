@@ -182,6 +182,13 @@ export const CrmMessages = {
       'Le stock initial ne peut être saisi qu’une seule fois par article.',
     INSUFFICIENT_STOCK:
       'Quantité en stock insuffisante pour effectuer cette sortie.',
+    INSUFFICIENT_STOCK_DETAIL: (
+      article: string,
+      warehouse: string,
+      available: number,
+      requested: number,
+    ) =>
+      `Quantité en stock insuffisante pour « ${article} » dans l'entrepôt « ${warehouse} » : disponible ${available}, demandé ${requested}.`,
     COST_CENTER_REQUIRED:
       'Le centre de coût est obligatoire pour une sortie consommation.',
     LOSS_REASON_REQUIRED:

@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, BadRequestException } from '@nestjs/common';
 
 export interface ItsBracket {
   numeroTranche: number;
@@ -8,27 +8,64 @@ export interface ItsBracket {
   montantDeductionFixe?: number;
 }
 
+export interface PayrollRubricConfig {
+  id?: string;
+  code: string;
+  libelle: string;
+  typeRubrique: string;
+  sensDefaut?: 'GAIN' | 'RETENUE' | 'INFORMATION';
+  ordreAffichage?: number;
+  tauxParDefaut?: number;
+  assujettiIts?: boolean;
+  assujettiCnss?: boolean;
+  assujettiVps?: boolean;
+}
+
+export interface PayrollVariableDetail {
+  rubriquePaieId?: string;
+  codeRubrique: string;
+  libelleRubrique: string;
+  typeRubrique: string;
+  sens: 'GAIN' | 'RETENUE' | 'INFORMATION';
+  montant: number;
+  base?: number;
+  taux?: number;
+  ordre?: number;
+}
+
 export interface PayrollCalculationInput {
   salaireBase: number;
+  heuresNormales: number;
   tauxHoraire?: number;
-  heuresNormales?: number;
+
+  // Majorations Heures supplémentaires
   heuresSup15?: number;
   heuresSup50?: number;
   heuresSupNuit?: number;
   heuresSupDimancheFerie?: number;
+
+  // Variables agrégées ou liste détaillée issue de la base
   primesBrutesImposables?: number;
   indemnitesNonImposables?: number;
   avantagesEnNature?: number;
   retenuesDiverses?: number;
-  // Prélèvements personnalisés ou barèmes
-  tauxCnssSalarial?: number; // Défaut 3.6%
-  tauxCnssPatronal?: number; // Défaut 17.4%
-  tauxVpsPatronal?: number; // Défaut 4.0%
-  customBrackets?: ItsBracket[];
-  // Rémunération exceptionnelle (13e mois / prime de bilan avec méthode du quotient)
+  variablesDetails?: PayrollVariableDetail[];
+
+  // Taux de charges obligatoires issus strictement de la base de données
+  tauxCnssSalarial: number;
+  tauxCnssPatronal: number;
+  tauxVpsPatronal: number;
+
+  // Barème progressif ITS obligatoire issu de la base
+  brackets: ItsBracket[];
+
+  // Catalogue des rubriques obligatoire issu de la base
+  rubriquesCatalogue: PayrollRubricConfig[];
+
+  // Rémunération exceptionnelle (méthode du quotient)
   remunerationExceptionnelle?: {
     montantBrut: number;
-    tauxAbattement?: number; // Défaut 25% (Bénin Art. 126)
+    tauxAbattement: number;
     salaireMoyenReference12m?: number;
   };
 }
@@ -77,56 +114,48 @@ export interface PayrollCalculationResult {
 }
 
 /**
- * MOTEUR DE CALCUL DE LA PAIE & FISCALITÉ SALARIALE
+ * MOTEUR DYNAMIQUE DE CALCUL DE LA PAIE & FISCALITÉ SALARIALE
  * 
- * Implémente rigoureusement les dispositions du Code Général des Impôts du Bénin (CGI 2026)
- * et du Code du Travail de la République du Bénin :
- * 
- * 1. Barème progressif ITS (Art. 125 CGI Bénin) :
- *    - Tranche 1 : 0 à 50 000 FCFA               -> 0 % (Exonéré)
- *    - Tranche 2 : 50 001 à 130 000 FCFA         -> 10 %
- *    - Tranche 3 : 130 001 à 280 000 FCFA        -> 15 %
- *    - Tranche 4 : 280 001 à 530 000 FCFA        -> 20 %
- *    - Tranche 5 : Plus de 530 000 FCFA          -> 30 %
- * 
- * 2. Rémunérations exceptionnelles (Art. 126 CGI Bénin - Méthode du Quotient) :
- *    - Application d'un abattement forfaitaire de 25% sur les gratifications et 13e mois
- *    - Calcul de l'impôt avec étalement sur le salaire moyen des 12 derniers mois
- *    - Empêche le saut de tranche fiscal injuste pour le collaborateur
- * 
- * 3. Cotisations Sociales & Patronales :
- *    - CNSS Salariale (Régime Général Retraite / Prestations) : 3,6 %
- *    - CNSS Patronale (Prestations Familiales, Risques Pro, Vieillesse) : 17,4 %
- *    - VPS (Versement Patronal sur Salaires dû au Trésor Public) : 4,0 %
- * 
- * 4. Heures Supplémentaires & Majorations Légales :
- *    - Heures de jour (41e à 48e heure hebdomadaire) : +15 %
- *    - Heures au-delà de la 48e heure : +50 %
- *    - Heures de nuit (21h à 5h) : +50 %
- *    - Dimanches et jours fériés : +50 % (jour) ou +100 % (nuit)
+ * 100% Dynamique : Aucune donnée fiscale, sociale ou rubrique n'est codée en dur.
+ * Toutes les tranches (ITS), tous les taux (CNSS, VPS) et toutes les rubriques (codes, libellés, comptes)
+ * proviennent obligatoirement de la base de données (RhBaremeIts, RhTauxChargeSociale, RhRubriquePaie).
  */
 @Injectable()
 export class CalculPaieService {
-  /** Barème officiel de l'Impôt sur les Traitements et Salaires (CGI Bénin 2026 Art. 125) */
-  private readonly defaultItsBrackets: ItsBracket[] = [
-    { numeroTranche: 1, limiteInferieure: 0, limiteSuperieure: 50000, taux: 0 },
-    { numeroTranche: 2, limiteInferieure: 50000, limiteSuperieure: 130000, taux: 10 },
-    { numeroTranche: 3, limiteInferieure: 130000, limiteSuperieure: 280000, taux: 15 },
-    { numeroTranche: 4, limiteInferieure: 280000, limiteSuperieure: 530000, taux: 20 },
-    { numeroTranche: 5, limiteInferieure: 530000, limiteSuperieure: null, taux: 30 },
-  ];
+  /**
+   * Arrondit un nombre à 2 chiffres après la virgule maximum
+   */
+  private round2(val: number): number {
+    return Math.round((val + Number.EPSILON) * 100) / 100;
+  }
 
   /**
-   * Calcule l'ITS selon le barème progressif par tranches (Bénin CGI 2026)
+   * Calcule l'ITS selon le barème progressif par tranches configuré en base de données
+   * 
+   * @param netImposable - Assiette fiscale nette imposable
+   * @param brackets - Tranches d'imposition dynamiques chargées depuis la base
    */
-  calculateIts(netImposable: number, brackets: ItsBracket[] = this.defaultItsBrackets): number {
-    if (netImposable <= 50000) {
+  calculateIts(netImposable: number, brackets: ItsBracket[]): number {
+    if (!brackets || brackets.length === 0) {
+      throw new BadRequestException(
+        "Aucun barème d'impôt sur salaires (ITS) n'a été fourni pour le calcul.",
+      );
+    }
+
+    const sortedBrackets = [...brackets].sort((a, b) => a.numeroTranche - b.numeroTranche);
+    const firstBracket = sortedBrackets[0];
+
+    // Si la 1ère tranche est exonérée (taux = 0) et que le salaire est sous sa limite
+    if (
+      firstBracket &&
+      firstBracket.taux === 0 &&
+      firstBracket.limiteSuperieure !== null &&
+      netImposable <= firstBracket.limiteSuperieure
+    ) {
       return 0;
     }
 
     let itsTotal = 0;
-    const sortedBrackets = [...brackets].sort((a, b) => a.numeroTranche - b.numeroTranche);
-
     for (const b of sortedBrackets) {
       if (netImposable > b.limiteInferieure) {
         const sup = b.limiteSuperieure !== null ? b.limiteSuperieure : Infinity;
@@ -137,29 +166,31 @@ export class CalculPaieService {
       }
     }
 
-    return Math.round(itsTotal);
+    return this.round2(itsTotal);
   }
 
   /**
-   * Calcule l'impôt sur rémunération exceptionnelle par la Méthode du Quotient (Art. 126 CGI Bénin 2026)
+   * Calcule l'impôt sur rémunération exceptionnelle par la Méthode du Quotient
+   * en utilisant le barème fiscal et le taux d'abattement configurés en base
    */
   calculateQuotientTax(
     salaireOrdinaireImposable: number,
     remunerationBruteExcep: number,
-    tauxAbattement = 25,
-    salaireMoyenReference12m?: number,
-    brackets: ItsBracket[] = this.defaultItsBrackets,
+    tauxAbattement: number,
+    salaireMoyenReference12m: number | undefined,
+    brackets: ItsBracket[],
   ) {
-    const sRef = salaireMoyenReference12m && salaireMoyenReference12m > 0
-      ? salaireMoyenReference12m
-      : salaireOrdinaireImposable;
+    const sRef =
+      salaireMoyenReference12m && salaireMoyenReference12m > 0
+        ? salaireMoyenReference12m
+        : salaireOrdinaireImposable;
 
     const impotRef = this.calculateIts(sRef, brackets);
-    const baseApresAbattement = remunerationBruteExcep * (1 - (tauxAbattement / 100));
+    const baseApresAbattement = remunerationBruteExcep * (1 - tauxAbattement / 100);
 
     // Rapport du quotient
     const rapportQuotient = (salaireOrdinaireImposable + baseApresAbattement) / Math.max(1, sRef);
-    const impotTotalQuotient = Math.round(impotRef * rapportQuotient);
+    const impotTotalQuotient = this.round2(impotRef * rapportQuotient);
 
     // Impôt sur le salaire ordinaire seul
     const impotOrdinaireSeul = this.calculateIts(salaireOrdinaireImposable, brackets);
@@ -168,68 +199,123 @@ export class CalculPaieService {
     const impotSpecifique = Math.max(0, impotTotalQuotient - impotOrdinaireSeul);
 
     return {
-      salaireMoyenReference12m: sRef,
-      impotReference12m: impotRef,
-      baseApresAbattement,
-      rapportQuotient: Math.round(rapportQuotient * 10000) / 10000,
+      salaireMoyenReference12m: this.round2(sRef),
+      impotReference12m: this.round2(impotRef),
+      baseApresAbattement: this.round2(baseApresAbattement),
+      rapportQuotient: this.round2(rapportQuotient),
       impotTotalQuotient,
-      impotSpecifiqueExceptionnel: impotSpecifique,
+      impotSpecifiqueExceptionnel: this.round2(impotSpecifique),
     };
   }
 
   /**
-   * Calcul complet et détaillé d'un bulletin de paie
+   * Calcul complet et détaillé d'un bulletin de paie à partir des paramètres de base de données
    */
   calculatePayslip(input: PayrollCalculationInput): PayrollCalculationResult {
-    const salaireBase = input.salaireBase;
-    const heuresNormales = input.heuresNormales ?? 173.33;
-    const tauxHoraire = input.tauxHoraire ?? (salaireBase / 173.33);
+    if (!input.brackets || input.brackets.length === 0) {
+      throw new BadRequestException(
+        "Le barème d'impôt ITS est requis et doit être configuré en base de données.",
+      );
+    }
+    if (!input.rubriquesCatalogue || input.rubriquesCatalogue.length === 0) {
+      throw new BadRequestException(
+        "Le catalogue des rubriques est requis et doit être configuré en base de données.",
+      );
+    }
+    if (input.tauxCnssSalarial === undefined || input.tauxCnssSalarial === null) {
+      throw new BadRequestException(
+        "Le taux de cotisation sociale salariale doit provenir de la base de données.",
+      );
+    }
+    if (input.tauxCnssPatronal === undefined || input.tauxCnssPatronal === null) {
+      throw new BadRequestException(
+        "Le taux de cotisation sociale patronale doit provenir de la base de données.",
+      );
+    }
+    if (input.tauxVpsPatronal === undefined || input.tauxVpsPatronal === null) {
+      throw new BadRequestException(
+        "Le taux de taxe patronale sur salaire doit provenir de la base de données.",
+      );
+    }
+    if (!input.heuresNormales || input.heuresNormales <= 0) {
+      throw new BadRequestException(
+        "La durée normale de travail mensuelle est requise et doit être configurée.",
+      );
+    }
+
+    const salaireBase = this.round2(input.salaireBase);
+    const heuresNormales = this.round2(input.heuresNormales);
+    const rawTauxHoraire = input.tauxHoraire ?? (salaireBase / Math.max(1, heuresNormales));
+    const tauxHoraire = this.round2(rawTauxHoraire);
 
     // Heures supplémentaires
     const hs15 = (input.heuresSup15 ?? 0) * (tauxHoraire * 1.15);
     const hs50 = (input.heuresSup50 ?? 0) * (tauxHoraire * 1.50);
     const hsNuit = (input.heuresSupNuit ?? 0) * (tauxHoraire * 1.50);
     const hsDimanche = (input.heuresSupDimancheFerie ?? 0) * (tauxHoraire * 1.50);
-    const montantHeuresSup = Math.round(hs15 + hs50 + hsNuit + hsDimanche);
+    const montantHeuresSup = this.round2(hs15 + hs50 + hsNuit + hsDimanche);
 
-    const primesBrutes = input.primesBrutesImposables ?? 0;
-    const avantagesNature = input.avantagesEnNature ?? 0;
-    const indemnitesNonImposables = input.indemnitesNonImposables ?? 0;
+    // Calcul des montants variables (priorité à la liste détaillée)
+    let primesBrutes = input.primesBrutesImposables ?? 0;
+    let indemnitesNonImposables = input.indemnitesNonImposables ?? 0;
+    let avantagesNature = input.avantagesEnNature ?? 0;
+    let retenuesDiverses = input.retenuesDiverses ?? 0;
+
+    if (input.variablesDetails && input.variablesDetails.length > 0) {
+      primesBrutes = input.variablesDetails
+        .filter((v) => v.typeRubrique === 'GAIN_BRUT')
+        .reduce((sum, v) => sum + v.montant, 0);
+
+      indemnitesNonImposables = input.variablesDetails
+        .filter((v) => v.typeRubrique === 'INDEMNITE_NON_IMPOSABLE')
+        .reduce((sum, v) => sum + v.montant, 0);
+
+      avantagesNature = input.variablesDetails
+        .filter((v) => v.typeRubrique === 'AVANTAGE_EN_NATURE')
+        .reduce((sum, v) => sum + v.montant, 0);
+
+      retenuesDiverses = input.variablesDetails
+        .filter((v) => v.typeRubrique === 'RETENUE_NETTE_AUTRE' || (v.sens === 'RETENUE' && !['RETENUE_SALARIALE_CNSS', 'RETENUE_FISCALE_ITS'].includes(v.typeRubrique)))
+        .reduce((sum, v) => sum + v.montant, 0);
+    }
+
+    primesBrutes = this.round2(primesBrutes);
+    indemnitesNonImposables = this.round2(indemnitesNonImposables);
+    avantagesNature = this.round2(avantagesNature);
+    retenuesDiverses = this.round2(retenuesDiverses);
 
     // Total salaire brut
-    const totalSalaireBrut = Math.round(
+    const totalSalaireBrut = this.round2(
       salaireBase + montantHeuresSup + primesBrutes + avantagesNature + indemnitesNonImposables,
     );
 
     // Assiettes fiscales et sociales
-    const totalAssietteCnss = Math.round(salaireBase + montantHeuresSup + primesBrutes + avantagesNature);
+    const totalAssietteCnss = this.round2(
+      salaireBase + montantHeuresSup + primesBrutes + avantagesNature,
+    );
     const totalAssietteVps = totalAssietteCnss;
 
-    // Cotisations CNSS
-    const tauxCnssSal = input.tauxCnssSalarial ?? 3.6;
-    const montantCnssSalariale = Math.round(totalAssietteCnss * (tauxCnssSal / 100));
+    // Cotisations Sociales & Patronales (Taux issus de la DB)
+    const tauxCnssSal = this.round2(input.tauxCnssSalarial);
+    const montantCnssSalariale = this.round2(totalAssietteCnss * (tauxCnssSal / 100));
 
-    const tauxCnssPat = input.tauxCnssPatronal ?? 17.4;
-    const montantCnssPatronale = Math.round(totalAssietteCnss * (tauxCnssPat / 100));
+    const tauxCnssPat = this.round2(input.tauxCnssPatronal);
+    const montantCnssPatronale = this.round2(totalAssietteCnss * (tauxCnssPat / 100));
 
-    // VPS (Versement Patronal sur Salaires 4%)
-    const tauxVpsPat = input.tauxVpsPatronal ?? 4.0;
-    const montantVpsPatronale = Math.round(totalAssietteVps * (tauxVpsPat / 100));
+    // Taxe patronale (VPS / Taux issu de la DB)
+    const tauxVpsPat = this.round2(input.tauxVpsPatronal);
+    const montantVpsPatronale = this.round2(totalAssietteVps * (tauxVpsPat / 100));
 
-    const totalChargesPatronales = montantCnssPatronale + montantVpsPatronale;
+    const totalChargesPatronales = this.round2(montantCnssPatronale + montantVpsPatronale);
 
     // Net imposable
-    const netImposable = Math.max(0, totalAssietteCnss - montantCnssSalariale);
+    const netImposable = Math.max(0, this.round2(totalAssietteCnss - montantCnssSalariale));
     const totalAssietteIts = netImposable;
 
-    // Calcul ITS Ordinaire
-    const brackets = input.customBrackets && input.customBrackets.length > 0
-      ? input.customBrackets
-      : this.defaultItsBrackets;
+    // Calcul ITS selon le barème de la base
+    const montantItsOrdinaire = this.calculateIts(netImposable, input.brackets);
 
-    const montantItsOrdinaire = this.calculateIts(netImposable, brackets);
-
-    // Calcul éventuel de rémunération exceptionnelle par la méthode du quotient
+    // Calcul de la rémunération exceptionnelle par le quotient si présente
     let montantItsExceptionnel = 0;
     let detailsQuotient: PayrollCalculationResult['detailsQuotient'] = undefined;
 
@@ -237,166 +323,255 @@ export class CalculPaieService {
       const qRes = this.calculateQuotientTax(
         netImposable,
         input.remunerationExceptionnelle.montantBrut,
-        input.remunerationExceptionnelle.tauxAbattement ?? 25,
+        input.remunerationExceptionnelle.tauxAbattement,
         input.remunerationExceptionnelle.salaireMoyenReference12m,
-        brackets,
+        input.brackets,
       );
       detailsQuotient = qRes;
       montantItsExceptionnel = qRes.impotSpecifiqueExceptionnel;
     }
 
-    const montantImpotSalaireTotal = montantItsOrdinaire + montantItsExceptionnel;
-    const retenuesDiverses = input.retenuesDiverses ?? 0;
-    const totalRetenuesSalariales = montantCnssSalariale + montantImpotSalaireTotal + retenuesDiverses;
+    const montantImpotSalaireTotal = this.round2(montantItsOrdinaire + montantItsExceptionnel);
+    const totalRetenuesSalariales = this.round2(
+      montantCnssSalariale + montantImpotSalaireTotal + retenuesDiverses,
+    );
 
     // Net à payer
-    const netAPayer = Math.round(totalSalaireBrut - totalRetenuesSalariales);
+    const netAPayer = this.round2(totalSalaireBrut - totalRetenuesSalariales);
 
-    // Construction des lignes de bulletin détaillées
-    const detailsLignes: PayrollCalculationResult['detailsLignes'] = [
-      {
-        codeRubrique: 'R100',
-        libelleRubrique: 'Salaire de Base',
-        typeRubrique: 'GAIN_BRUT',
-        sens: 'GAIN',
-        base: heuresNormales,
-        taux: tauxHoraire,
-        montantGain: salaireBase,
-        montantRetenue: 0,
-        partPatronaleMontant: 0,
-        ordre: 10,
-      },
-    ];
+    // ---------------- CONSTRUCTION DYNAMIQUE DES LIGNES DU BULLETIN ----------------
+    // Tous les codes, libellés et types proviennent de input.rubriquesCatalogue (DB)
+    const rubMap = new Map<string, PayrollRubricConfig>();
+    for (const r of input.rubriquesCatalogue) {
+      rubMap.set(r.code, r);
+    }
 
+    const findRubriqueByType = (
+      type: string,
+      preferCode?: string,
+    ): PayrollRubricConfig | undefined => {
+      if (preferCode && rubMap.has(preferCode)) return rubMap.get(preferCode);
+      return input.rubriquesCatalogue.find((r) => r.typeRubrique === type);
+    };
+
+    const detailsLignes: PayrollCalculationResult['detailsLignes'] = [];
+
+    // 1. Salaire de base
+    const rubBase = findRubriqueByType('GAIN_BRUT', 'R100');
+    if (!rubBase) {
+      throw new BadRequestException(
+        "Aucune rubrique de Salaire de Base (type GAIN_BRUT) n'est configurée en base de données.",
+      );
+    }
+    detailsLignes.push({
+      codeRubrique: rubBase.code,
+      libelleRubrique: rubBase.libelle,
+      typeRubrique: rubBase.typeRubrique,
+      sens: 'GAIN',
+      base: heuresNormales,
+      taux: Math.round(tauxHoraire * 100) / 100,
+      montantGain: salaireBase,
+      montantRetenue: 0,
+      partPatronaleMontant: 0,
+      ordre: rubBase.ordreAffichage ?? 10,
+    });
+
+    // 2. Heures supplémentaires
     if (montantHeuresSup > 0) {
+      const rubHs =
+        rubMap.get('R110') ||
+        input.rubriquesCatalogue.find(
+          (r) =>
+            r.typeRubrique === 'GAIN_BRUT' &&
+            (r.code.includes('HS') || r.libelle.toLowerCase().includes('supplémentaire')),
+        ) ||
+        rubBase;
+
       detailsLignes.push({
-        codeRubrique: 'R110',
-        libelleRubrique: 'Heures Supplémentaires',
-        typeRubrique: 'GAIN_BRUT',
+        codeRubrique: rubHs.code,
+        libelleRubrique: rubHs.libelle,
+        typeRubrique: rubHs.typeRubrique,
         sens: 'GAIN',
         montantGain: montantHeuresSup,
         montantRetenue: 0,
         partPatronaleMontant: 0,
-        ordre: 20,
+        ordre: rubHs.ordreAffichage ?? 20,
       });
     }
 
-    if (primesBrutes > 0) {
-      detailsLignes.push({
-        codeRubrique: 'R150',
-        libelleRubrique: 'Primes et Gratifications',
-        typeRubrique: 'GAIN_BRUT',
-        sens: 'GAIN',
-        montantGain: primesBrutes,
-        montantRetenue: 0,
-        partPatronaleMontant: 0,
-        ordre: 30,
-      });
+    // 3. Éléments variables réels ou agrégés
+    if (input.variablesDetails && input.variablesDetails.length > 0) {
+      for (const v of input.variablesDetails) {
+        detailsLignes.push({
+          codeRubrique: v.codeRubrique,
+          libelleRubrique: v.libelleRubrique,
+          typeRubrique: v.typeRubrique,
+          sens: v.sens,
+          base: v.base !== undefined && v.base !== null ? this.round2(v.base) : undefined,
+          taux: v.taux !== undefined && v.taux !== null ? this.round2(v.taux) : undefined,
+          montantGain: v.sens === 'GAIN' ? this.round2(v.montant) : 0,
+          montantRetenue: v.sens === 'RETENUE' ? this.round2(v.montant) : 0,
+          partPatronaleMontant: 0,
+          ordre: v.ordre ?? 50,
+        });
+      }
+    } else {
+      if (primesBrutes > 0) {
+        const rubPrime = findRubriqueByType('GAIN_BRUT', 'R150') || rubBase;
+        detailsLignes.push({
+          codeRubrique: rubPrime.code,
+          libelleRubrique: rubPrime.libelle,
+          typeRubrique: rubPrime.typeRubrique,
+          sens: 'GAIN',
+          montantGain: primesBrutes,
+          montantRetenue: 0,
+          partPatronaleMontant: 0,
+          ordre: rubPrime.ordreAffichage ?? 30,
+        });
+      }
+      if (avantagesNature > 0) {
+        const rubAv = findRubriqueByType('AVANTAGE_EN_NATURE', 'R300');
+        if (rubAv) {
+          detailsLignes.push({
+            codeRubrique: rubAv.code,
+            libelleRubrique: rubAv.libelle,
+            typeRubrique: rubAv.typeRubrique,
+            sens: 'GAIN',
+            montantGain: avantagesNature,
+            montantRetenue: 0,
+            partPatronaleMontant: 0,
+            ordre: rubAv.ordreAffichage ?? 40,
+          });
+        }
+      }
+      if (indemnitesNonImposables > 0) {
+        const rubIndem = findRubriqueByType('INDEMNITE_NON_IMPOSABLE', 'R200');
+        if (rubIndem) {
+          detailsLignes.push({
+            codeRubrique: rubIndem.code,
+            libelleRubrique: rubIndem.libelle,
+            typeRubrique: rubIndem.typeRubrique,
+            sens: 'GAIN',
+            montantGain: indemnitesNonImposables,
+            montantRetenue: 0,
+            partPatronaleMontant: 0,
+            ordre: rubIndem.ordreAffichage ?? 50,
+          });
+        }
+      }
+      if (retenuesDiverses > 0) {
+        const rubRet = findRubriqueByType('RETENUE_NETTE_AUTRE', 'R700');
+        if (rubRet) {
+          detailsLignes.push({
+            codeRubrique: rubRet.code,
+            libelleRubrique: rubRet.libelle,
+            typeRubrique: rubRet.typeRubrique,
+            sens: 'RETENUE',
+            montantGain: 0,
+            montantRetenue: retenuesDiverses,
+            partPatronaleMontant: 0,
+            ordre: rubRet.ordreAffichage ?? 200,
+          });
+        }
+      }
     }
 
-    if (avantagesNature > 0) {
-      detailsLignes.push({
-        codeRubrique: 'R300',
-        libelleRubrique: 'Avantages en Nature (CGI Art. 123)',
-        typeRubrique: 'AVANTAGE_EN_NATURE',
-        sens: 'GAIN',
-        montantGain: avantagesNature,
-        montantRetenue: 0,
-        partPatronaleMontant: 0,
-        ordre: 40,
-      });
+    // 4. Cotisation CNSS Salariale (depuis la rubrique en base)
+    const rubCnssSal = findRubriqueByType('RETENUE_SALARIALE_CNSS', 'R500');
+    if (!rubCnssSal) {
+      throw new BadRequestException(
+        "Aucune rubrique de Cotisation Sociale Salariale (type RETENUE_SALARIALE_CNSS) n'est configurée en base de données.",
+      );
     }
-
-    if (indemnitesNonImposables > 0) {
-      detailsLignes.push({
-        codeRubrique: 'R200',
-        libelleRubrique: 'Indemnités Non Imposables (Transport / Panier)',
-        typeRubrique: 'INDEMNITE_NON_IMPOSABLE',
-        sens: 'GAIN',
-        montantGain: indemnitesNonImposables,
-        montantRetenue: 0,
-        partPatronaleMontant: 0,
-        ordre: 50,
-      });
-    }
-
-    // CNSS Salariale & Patronale
     detailsLignes.push({
-      codeRubrique: 'R500',
-      libelleRubrique: 'Cotisation CNSS Retraite Salariale (3.6 %)',
-      typeRubrique: 'RETENUE_SALARIALE_CNSS',
+      codeRubrique: rubCnssSal.code,
+      libelleRubrique: rubCnssSal.libelle,
+      typeRubrique: rubCnssSal.typeRubrique,
       sens: 'RETENUE',
       base: totalAssietteCnss,
       taux: tauxCnssSal,
       montantGain: 0,
       montantRetenue: montantCnssSalariale,
       partPatronaleMontant: 0,
-      ordre: 100,
+      ordre: rubCnssSal.ordreAffichage ?? 100,
     });
 
+    // 5. Charges Patronales CNSS (depuis la rubrique en base)
+    const rubCnssPat = findRubriqueByType('CHARGE_PATRONALE_CNSS', 'R600');
+    if (!rubCnssPat) {
+      throw new BadRequestException(
+        "Aucune rubrique de Charge Patronale Sociale (type CHARGE_PATRONALE_CNSS) n'est configurée en base de données.",
+      );
+    }
     detailsLignes.push({
-      codeRubrique: 'R600',
-      libelleRubrique: 'Cotisations CNSS Patronales (17.4 %)',
-      typeRubrique: 'CHARGE_PATRONALE_CNSS',
+      codeRubrique: rubCnssPat.code,
+      libelleRubrique: rubCnssPat.libelle,
+      typeRubrique: rubCnssPat.typeRubrique,
       sens: 'INFORMATION',
       base: totalAssietteCnss,
       taux: tauxCnssPat,
       montantGain: 0,
       montantRetenue: 0,
       partPatronaleMontant: montantCnssPatronale,
-      ordre: 110,
+      ordre: rubCnssPat.ordreAffichage ?? 110,
     });
 
-    // ITS
+    // 6. Impôt sur Traitements et Salaires (ITS) (depuis la rubrique en base)
+    const rubIts = findRubriqueByType('RETENUE_FISCALE_ITS', 'R550');
+    if (!rubIts) {
+      throw new BadRequestException(
+        "Aucune rubrique de Retenue Fiscale ITS (type RETENUE_FISCALE_ITS) n'est configurée en base de données.",
+      );
+    }
     detailsLignes.push({
-      codeRubrique: 'R550',
-      libelleRubrique: 'Impôt sur Traitements et Salaires (ITS Bénin 2026)',
-      typeRubrique: 'RETENUE_FISCALE_ITS',
+      codeRubrique: rubIts.code,
+      libelleRubrique: rubIts.libelle,
+      typeRubrique: rubIts.typeRubrique,
       sens: 'RETENUE',
       base: netImposable,
       montantGain: 0,
       montantRetenue: montantImpotSalaireTotal,
       partPatronaleMontant: 0,
-      ordre: 120,
+      ordre: rubIts.ordreAffichage ?? 120,
     });
 
-    // VPS Patronale (4%)
-    detailsLignes.push({
-      codeRubrique: 'R650',
-      libelleRubrique: 'Versement Patronal sur Salaires (VPS 4 %)',
-      typeRubrique: 'CHARGE_PATRONALE_VPS',
-      sens: 'INFORMATION',
-      base: totalAssietteVps,
-      taux: tauxVpsPat,
-      montantGain: 0,
-      montantRetenue: 0,
-      partPatronaleMontant: montantVpsPatronale,
-      ordre: 130,
-    });
-
-    if (retenuesDiverses > 0) {
+    // 7. Taxes Patronales sur Salaires (VPS) (depuis la rubrique en base)
+    const rubVps = findRubriqueByType('CHARGE_PATRONALE_VPS', 'R650');
+    if (rubVps) {
       detailsLignes.push({
-        codeRubrique: 'R700',
-        libelleRubrique: 'Retenues Diverses / Avances sur Salaire',
-        typeRubrique: 'RETENUE_NETTE_AUTRE',
-        sens: 'RETENUE',
+        codeRubrique: rubVps.code,
+        libelleRubrique: rubVps.libelle,
+        typeRubrique: rubVps.typeRubrique,
+        sens: 'INFORMATION',
+        base: totalAssietteVps,
+        taux: tauxVpsPat,
         montantGain: 0,
-        montantRetenue: retenuesDiverses,
-        partPatronaleMontant: 0,
-        ordre: 200,
+        montantRetenue: 0,
+        partPatronaleMontant: montantVpsPatronale,
+        ordre: rubVps.ordreAffichage ?? 130,
       });
     }
 
+    // 8. Net à Payer (depuis la rubrique en base)
+    const rubNet = findRubriqueByType('GAIN_NET_NON_IMPOSABLE', 'R900');
+    if (!rubNet) {
+      throw new BadRequestException(
+        "Aucune rubrique de Net à Payer (type GAIN_NET_NON_IMPOSABLE) n'est configurée en base de données.",
+      );
+    }
     detailsLignes.push({
-      codeRubrique: 'R900',
-      libelleRubrique: 'Net à Payer',
-      typeRubrique: 'GAIN_NET_NON_IMPOSABLE',
+      codeRubrique: rubNet.code,
+      libelleRubrique: rubNet.libelle,
+      typeRubrique: rubNet.typeRubrique,
       sens: 'INFORMATION',
       montantGain: netAPayer,
       montantRetenue: 0,
       partPatronaleMontant: 0,
-      ordre: 999,
+      ordre: rubNet.ordreAffichage ?? 999,
     });
+
+    // Tri des lignes par ordre d'affichage configuré en base
+    detailsLignes.sort((a, b) => a.ordre - b.ordre);
 
     return {
       salaireBase,

@@ -2187,6 +2187,7 @@ model RhPoste {
   description                 String?
   categorieProfessionnelleId  String?                     @map("categorie_professionnelle_id")
   niveauCompetenceRequis      String?                     @map("niveau_competence_requis")
+  tauxRisqueAt                Float?                      @map("taux_risque_at")
   actif                       Boolean                     @default(true)
   createdAt                   DateTime                    @default(now()) @map("created_at")
   updatedAt                   DateTime                    @updatedAt @map("updated_at")
@@ -2441,6 +2442,7 @@ model RhContrat {
   deviseCode                  String                      @default("XOF") @map("devise_code")
   periodicitePaiement         String                      @default("MENSUELLE") @map("periodicite_paiement")
   dureeHebdoContrat           Float                       @default(40) @map("duree_hebdo_contrat")
+  tauxRisqueAt                Float?                      @map("taux_risque_at")
   posteId                     String?                     @map("poste_id")
   categorieProfessionnelleId  String?                     @map("categorie_professionnelle_id")
   conventionCollectiveId      String?                     @map("convention_collective_id")

@@ -27,6 +27,7 @@ import {
   CreateAbsenceDto,
   CreatePlanningHoraireDto,
   CreateReleveTempsDto,
+  RecalculerSoldesDto,
   ValidateAbsenceDto,
   ValidateReleveTempsDto,
 } from './dto/temps-absences.dto';
@@ -277,6 +278,27 @@ export class TempsAbsencesController {
   }
 
   /**
+   * Recalculer les compteurs de congés selon les règles légales Bénin
+   */
+  @Post('soldes-conges/calculer')
+  @Permissions('rh.leaves.validate')
+  @ApiOperation({
+    summary: 'Recalculer les compteurs de congés selon les règles légales Bénin',
+    description: 'Actualise les droits acquis (2j/mois), majorations d’ancienneté/enfants, jours consommés et soldes disponibles.',
+  })
+  @ApiResponse({ status: 200, description: 'Compteurs recalculés avec succès' })
+  recalculerSoldes(
+    @Request() req: { user: { tenantId: string } },
+    @Body() dto: RecalculerSoldesDto,
+  ) {
+    return this.tempsAbsencesService.recalculerSoldesConges(
+      req.user.tenantId,
+      dto.annee || 2026,
+      dto.employeId,
+    );
+  }
+
+  /**
    * Ajuster manuellement les compteurs de congés (régularisation RH)
    */
   @Post('soldes-conges/:employeId/ajuster')
@@ -290,8 +312,13 @@ export class TempsAbsencesController {
   adjustSoldeConge(
     @Param('employeId') employeId: string,
     @Body() dto: AdjustSoldeCongeDto,
-    @Request() req: { user: { tenantId: string } },
+    @Request() req: { user: { tenantId: string; id?: string; userId?: string } },
   ) {
-    return this.tempsAbsencesService.adjustSoldeConge(employeId, dto, req.user.tenantId);
+    return this.tempsAbsencesService.adjustSoldeConge(
+      employeId,
+      dto,
+      req.user.tenantId,
+      req.user.userId || req.user.id,
+    );
   }
 }

@@ -118,6 +118,7 @@ export class ContratsService {
         salaireBaseMensuel: dto.salaireBaseMensuel,
         deviseCode: dto.deviseCode ?? 'XOF',
         dureeHebdoContrat: dto.dureeHebdoContrat ?? 40,
+        tauxRisqueAt: dto.tauxRisqueAt !== undefined ? dto.tauxRisqueAt : null,
         posteId: dto.posteId,
         categorieProfessionnelleId: dto.categorieProfessionnelleId,
         conventionCollectiveId: dto.conventionCollectiveId,

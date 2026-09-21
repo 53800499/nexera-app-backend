@@ -255,6 +255,12 @@ export class StockTransfersService {
         const qtyOut = line.qtyPlanned;
         if (qtyOut <= 0) continue;
 
+        const itemLabel = stockItem.commercialItem
+          ? `${stockItem.commercialItem.reference} — ${stockItem.commercialItem.name}`
+          : stockItem.id;
+        const sourceWarehouseName =
+          transfer.sourceWarehouse?.name ?? transfer.sourceWarehouseId;
+
         const available = await this.getAvailableQty(
           tx,
           tenantId,
@@ -264,7 +270,14 @@ export class StockTransfersService {
           line.sourceLocationId,
         );
         if (available < qtyOut && !stockItem.allowNegativeStock) {
-          throw new BadRequestException(CrmMessages.stock.INSUFFICIENT_STOCK);
+          throw new BadRequestException(
+            CrmMessages.stock.INSUFFICIENT_STOCK_DETAIL(
+              itemLabel,
+              sourceWarehouseName,
+              available,
+              qtyOut,
+            ),
+          );
         }
 
         const serialIds: string[] = [];
@@ -304,7 +317,7 @@ export class StockTransfersService {
           });
         }
 
-        const level = await tx.stockLevel.findFirst({
+        let level = await tx.stockLevel.findFirst({
           where: {
             tenantId,
             stockItemId: stockItem.id,
@@ -313,6 +326,21 @@ export class StockTransfersService {
             lotId: line.lotId ?? null,
           },
         });
+
+        // Si aucun emplacement spécifique n'a été demandé et qu'aucun niveau avec locationId=null n'existe,
+        // chercher un niveau avec du stock disponible dans cet entrepôt
+        if (!level && !line.sourceLocationId) {
+          level = await tx.stockLevel.findFirst({
+            where: {
+              tenantId,
+              stockItemId: stockItem.id,
+              warehouseId: transfer.sourceWarehouseId,
+              lotId: line.lotId ?? null,
+              qtyAvailable: { gt: 0 },
+            },
+            orderBy: { qtyAvailable: 'desc' },
+          });
+        }
 
         const unitCost = line.unitCost || stockItem.currentCmup;
 
@@ -333,7 +361,14 @@ export class StockTransfersService {
             },
           });
         } else if (!stockItem.allowNegativeStock) {
-          throw new BadRequestException(CrmMessages.stock.INSUFFICIENT_STOCK);
+          throw new BadRequestException(
+            CrmMessages.stock.INSUFFICIENT_STOCK_DETAIL(
+              itemLabel,
+              sourceWarehouseName,
+              available,
+              qtyOut,
+            ),
+          );
         }
 
         const movLine = movementOut.lines.find(

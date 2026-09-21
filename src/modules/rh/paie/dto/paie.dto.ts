@@ -1,4 +1,4 @@
-import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional, PartialType } from '@nestjs/swagger';
 import {
   IsBoolean,
   IsDateString,
@@ -81,6 +81,13 @@ export class CreateRubriquePaieDto {
   @IsString()
   @IsOptional()
   compteComptableTiers?: string;
+}
+
+export class UpdateRubriquePaieDto extends PartialType(CreateRubriquePaieDto) {
+  @ApiPropertyOptional()
+  @IsBoolean()
+  @IsOptional()
+  actif?: boolean;
 }
 
 export class OpenCyclePaieDto {

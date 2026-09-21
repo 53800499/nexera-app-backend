@@ -210,6 +210,7 @@ export class StockExitsService {
         dto.warehouseId,
         tenantId,
         dto.movementType,
+        warehouse.name,
       );
       allocations.push(...slices);
       for (const s of slices) {
@@ -336,7 +337,17 @@ export class StockExitsService {
         );
 
         if (available < qtyOut && !stockItem.allowNegativeStock) {
-          throw new BadRequestException(CrmMessages.stock.INSUFFICIENT_STOCK);
+          const itemLabel = stockItem.commercialItem?.name
+            ? `${stockItem.commercialItem.reference} - ${stockItem.commercialItem.name}`
+            : stockItem.id;
+          throw new BadRequestException(
+            CrmMessages.stock.INSUFFICIENT_STOCK_DETAIL(
+              itemLabel,
+              movement.warehouse?.name || 'sélectionné',
+              available,
+              qtyOut,
+            ),
+          );
         }
 
         const serialIds: string[] = [];
@@ -429,7 +440,7 @@ export class StockExitsService {
           });
         }
 
-        const level = await tx.stockLevel.findFirst({
+        let level = await tx.stockLevel.findFirst({
           where: {
             tenantId,
             stockItemId: stockItem.id,
@@ -438,6 +449,20 @@ export class StockExitsService {
             lotId: line.lotId ?? null,
           },
         });
+
+        // Fallback si aucun emplacement n'était spécifié ou si le stock est sur un emplacement existant
+        if (!level && !line.locationId) {
+          level = await tx.stockLevel.findFirst({
+            where: {
+              tenantId,
+              stockItemId: stockItem.id,
+              warehouseId: movement.warehouseId,
+              lotId: line.lotId ?? null,
+              qtyAvailable: { gt: 0 },
+            },
+            orderBy: { qtyAvailable: 'desc' },
+          });
+        }
 
         const cmupBefore = stockItem.currentCmup;
         const unitCost = line.unitCost || cmupBefore;
@@ -486,7 +511,17 @@ export class StockExitsService {
             },
           });
         } else {
-          throw new BadRequestException(CrmMessages.stock.INSUFFICIENT_STOCK);
+          const itemLabel = stockItem.commercialItem?.name
+            ? `${stockItem.commercialItem.reference} - ${stockItem.commercialItem.name}`
+            : stockItem.id;
+          throw new BadRequestException(
+            CrmMessages.stock.INSUFFICIENT_STOCK_DETAIL(
+              itemLabel,
+              movement.warehouse?.name || 'sélectionné',
+              0,
+              qtyOut,
+            ),
+          );
         }
 
         await tx.stockMovementLine.update({
@@ -634,6 +669,7 @@ export class StockExitsService {
         warehouse.id,
         tenantId,
         StockExitTypeDto.OUT_SALE,
+        warehouse.name,
         true,
       );
       allocations.push(...slices);
@@ -766,14 +802,20 @@ export class StockExitsService {
     warehouseId: string,
     tenantId: string,
     movementType: StockExitTypeDto,
+    warehouseName?: string,
     allowPartial = false,
   ): Promise<AllocSlice[]> {
     const stockItem = await this.prisma.stockItem.findFirst({
       where: { id: line.stockItemId, tenantId },
+      include: { commercialItem: true },
     });
     if (!stockItem) {
       throw new NotFoundException(CrmMessages.stock.STOCK_ITEM_NOT_FOUND);
     }
+
+    const itemLabel = stockItem.commercialItem?.name
+      ? `${stockItem.commercialItem.reference} - ${stockItem.commercialItem.name}`
+      : stockItem.id;
 
     if (line.qty <= 0) {
       throw new BadRequestException(CrmMessages.stock.QTY_POSITIVE_REQUIRED);
@@ -815,7 +857,14 @@ export class StockExitsService {
         line.locationId ?? null,
       );
       if (available < line.qty && !stockItem.allowNegativeStock && !allowPartial) {
-        throw new BadRequestException(CrmMessages.stock.INSUFFICIENT_STOCK);
+        throw new BadRequestException(
+          CrmMessages.stock.INSUFFICIENT_STOCK_DETAIL(
+            itemLabel,
+            warehouseName || 'sélectionné',
+            available,
+            line.qty,
+          ),
+        );
       }
       const qty = allowPartial ? Math.min(line.qty, available) : line.qty;
       if (qty <= 0) return [];
@@ -833,11 +882,28 @@ export class StockExitsService {
         unitCost = lot.unitCost || unitCost;
       }
 
+      let locationId = line.locationId ?? null;
+      if (!locationId) {
+        const existingLevel = await this.prisma.stockLevel.findFirst({
+          where: {
+            tenantId,
+            stockItemId: stockItem.id,
+            warehouseId,
+            ...(line.lotId ? { lotId: line.lotId } : {}),
+            qtyAvailable: { gt: 0 },
+          },
+          orderBy: { qtyAvailable: 'desc' },
+        });
+        if (existingLevel?.locationId) {
+          locationId = existingLevel.locationId;
+        }
+      }
+
       return [
         {
           stockItemId: stockItem.id,
           lotId: line.lotId ?? null,
-          locationId: line.locationId ?? null,
+          locationId,
           qty,
           unitCost,
           lotNumber,
@@ -880,7 +946,14 @@ export class StockExitsService {
     }
 
     if (remaining > 0 && !stockItem.allowNegativeStock && !allowPartial) {
-      throw new BadRequestException(CrmMessages.stock.INSUFFICIENT_STOCK);
+      throw new BadRequestException(
+        CrmMessages.stock.INSUFFICIENT_STOCK_DETAIL(
+          itemLabel,
+          warehouseName || 'sélectionné',
+          line.qty - remaining,
+          line.qty,
+        ),
+      );
     }
 
     if (stockItem.trackSerials && slices.length > 0) {

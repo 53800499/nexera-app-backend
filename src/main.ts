@@ -23,17 +23,6 @@ async function bootstrap() {
     },
     credentials: true,
     methods: ['GET', 'HEAD', 'PUT', 'PATCH', 'POST', 'DELETE', 'OPTIONS'],
-    allowedHeaders: [
-      'Content-Type',
-      'Authorization',
-      'Accept',
-      'Accept-Encoding',
-      'X-Sync-Background',
-      'X-Tenant-Id',
-      'X-Requested-With',
-      'x-auth-retried',
-      'Origin',
-    ],
   });
 
   const apiPrefix = process.env.API_PREFIX?.trim();

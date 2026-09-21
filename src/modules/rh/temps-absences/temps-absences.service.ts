@@ -285,8 +285,197 @@ export class TempsAbsencesService {
   }
 
   // ---------------- SOLDES DE CONGÉS ----------------
+
+  /**
+   * Calcule et met à jour le compteur de congés d'un employé selon la législation béninoise (Code du Travail & CCGT).
+   * - 2 jours ouvrables par mois de service effectif (24 j / an complet)
+   * - Majorations d'ancienneté : +2 j (>=20 ans), +4 j (>=25 ans), +6 j (>=30 ans)
+   * - Majorations enfants à charge : +2 j par enfant mineur (<14 ans)
+   * - Prise en compte des absences validées déduites du solde
+   * - Report automatique du solde restant N-1
+   */
+  async calculerSoldeCongeEmploye(tenantId: string, employeId: string, annee: number) {
+    const employe = await this.prisma.rhEmploye.findFirst({
+      where: { id: employeId, tenantId },
+    });
+    if (!employe) return null;
+
+    // 1. Calcul de la durée de service effectif sur l'année de référence
+    const entryDate = employe.dateEntreeEntreprise ? new Date(employe.dateEntreeEntreprise) : new Date(annee, 0, 1);
+    const entryYear = entryDate.getFullYear();
+
+    let moisTravailles = 12;
+    if (entryYear > annee) {
+      moisTravailles = 0;
+    } else if (entryYear === annee) {
+      const entryMonth = entryDate.getMonth(); // 0-11
+      const entryDay = entryDate.getDate();
+      const daysInMonth = new Date(annee, entryMonth + 1, 0).getDate();
+      const remainingDays = daysInMonth - entryDay + 1;
+      // Art. 68 : toute période de 15 jours de service effectif équivaut à un mois complet
+      const fraction = remainingDays >= 15 ? 1 : Math.round((remainingDays / daysInMonth) * 10) / 10;
+      const fullMonths = 11 - entryMonth;
+      moisTravailles = Math.min(12, fullMonths + fraction);
+    }
+
+    // Gestion de sortie éventuelle dans l'année
+    if (employe.dateSortieDefinitive) {
+      const exitDate = new Date(employe.dateSortieDefinitive);
+      if (exitDate.getFullYear() === annee) {
+        const exitMonth = exitDate.getMonth();
+        const exitDay = exitDate.getDate();
+        const fraction = exitDay >= 15 ? 1 : 0.5;
+        moisTravailles = Math.min(moisTravailles, exitMonth + fraction);
+      } else if (exitDate.getFullYear() < annee) {
+        moisTravailles = 0;
+      }
+    }
+
+    // Droits acquis de base (2 jours ouvrables par mois)
+    const droitsAcquisBase = Math.round(moisTravailles * 2 * 2) / 2;
+
+    // 2. Ancienneté
+    const refAnciennete = employe.dateAnciennete ? new Date(employe.dateAnciennete) : entryDate;
+    const anneesAnciennete = Math.max(0, annee - refAnciennete.getFullYear());
+    let droitsSupAnciennete = 0;
+    if (anneesAnciennete >= 30) {
+      droitsSupAnciennete = 6;
+    } else if (anneesAnciennete >= 25) {
+      droitsSupAnciennete = 4;
+    } else if (anneesAnciennete >= 20) {
+      droitsSupAnciennete = 2;
+    }
+
+    // 3. Enfants à charge mineurs (< 14 ans)
+    let droitsSupEnfants = 0;
+    if ((employe.nombreEnfantsCharge ?? 0) > 0) {
+      droitsSupEnfants = (employe.nombreEnfantsCharge ?? 0) * 2;
+    }
+
+    // 4. Jours consommés (absences validées RH ou manager avec deduitSoldeConge)
+    const startOfYear = new Date(annee, 0, 1);
+    const endOfYear = new Date(annee, 11, 31, 23, 59, 59, 999);
+
+    const absencesConsommees = await this.prisma.rhAbsence.findMany({
+      where: {
+        tenantId,
+        employeId: employe.id,
+        statut: { in: ['VALIDE_RH', 'VALIDE_MANAGER'] },
+        typeAbsence: { deduitSoldeConge: true },
+        dateDebut: {
+          gte: startOfYear,
+          lte: endOfYear,
+        },
+      },
+    });
+    const joursConsommes = absencesConsommees.reduce((acc, a) => acc + (a.nombreJoursOuvrables || 0), 0);
+
+    // 5. Récupérer l'existant pour préserver d'éventuels ajustements manuels ou reports
+    const existing = await this.prisma.rhSoldeConge.findUnique({
+      where: {
+        tenantId_employeId_anneeReference: {
+          tenantId,
+          employeId: employe.id,
+          anneeReference: annee,
+        },
+      },
+    });
+
+    let soldeDebut = existing?.soldeDebutAnnee ?? 0;
+    let soldeReporte = existing?.soldeReporte ?? 0;
+
+    // Report automatique de N-1 si non initialisé
+    if (!existing || (existing.soldeReporte === 0 && existing.soldeDebutAnnee === 0)) {
+      const prevYear = await this.prisma.rhSoldeConge.findUnique({
+        where: {
+          tenantId_employeId_anneeReference: {
+            tenantId,
+            employeId: employe.id,
+            anneeReference: annee - 1,
+          },
+        },
+      });
+      if (prevYear && prevYear.joursRestants > 0) {
+        soldeReporte = prevYear.joursRestants;
+      }
+    }
+
+    // Droits acquis à appliquer (prend la valeur calculée si l'enregistrement avait 0)
+    const droitsAcquis = existing && existing.droitsAcquis > 0 ? existing.droitsAcquis : droitsAcquisBase;
+    const supAnc = existing && existing.droitsSupplementairesAnciennete > 0 ? existing.droitsSupplementairesAnciennete : droitsSupAnciennete;
+    const supEnf = existing && existing.droitsSupplementairesEnfants > 0 ? existing.droitsSupplementairesEnfants : droitsSupEnfants;
+
+    const totalDroits = soldeDebut + droitsAcquis + supAnc + supEnf + soldeReporte;
+    const joursRestants = Math.max(0, totalDroits - joursConsommes);
+
+    const saved = await this.prisma.rhSoldeConge.upsert({
+      where: {
+        tenantId_employeId_anneeReference: {
+          tenantId,
+          employeId: employe.id,
+          anneeReference: annee,
+        },
+      },
+      create: {
+        tenantId,
+        employeId: employe.id,
+        anneeReference: annee,
+        soldeDebutAnnee: soldeDebut,
+        droitsAcquis,
+        droitsSupplementairesAnciennete: supAnc,
+        droitsSupplementairesEnfants: supEnf,
+        joursConsommes,
+        joursRestants,
+        soldeReporte,
+      },
+      update: {
+        droitsAcquis,
+        droitsSupplementairesAnciennete: supAnc,
+        droitsSupplementairesEnfants: supEnf,
+        joursConsommes,
+        joursRestants,
+        soldeReporte,
+      },
+      include: { employe: true },
+    });
+
+    return {
+      ...saved,
+      droitsAcquisJours: saved.droitsAcquis,
+      joursPris: saved.joursConsommes,
+    };
+  }
+
   async getSoldesConges(tenantId: string, annee = 2026, employeId?: string) {
-    return this.prisma.rhSoldeConge.findMany({
+    // 1. Trouver les employés concernés
+    const employes = await this.prisma.rhEmploye.findMany({
+      where: {
+        tenantId,
+        statutEmploi: { not: 'SORTI' },
+        ...(employeId ? { id: employeId } : {}),
+      },
+      select: { id: true },
+    });
+
+    // 2. Pour chaque employé actif, calculer/initialiser s'il n'existe pas ou s'il est à 0
+    for (const emp of employes) {
+      const existing = await this.prisma.rhSoldeConge.findUnique({
+        where: {
+          tenantId_employeId_anneeReference: {
+            tenantId,
+            employeId: emp.id,
+            anneeReference: annee,
+          },
+        },
+      });
+
+      if (!existing || (existing.droitsAcquis === 0 && existing.joursRestants === 0 && existing.joursConsommes === 0)) {
+        await this.calculerSoldeCongeEmploye(tenantId, emp.id, annee);
+      }
+    }
+
+    // 3. Renvoyer les soldes avec alias complets pour compatibilité frontend
+    const soldes = await this.prisma.rhSoldeConge.findMany({
       where: {
         tenantId,
         anneeReference: annee,
@@ -295,9 +484,35 @@ export class TempsAbsencesService {
       include: { employe: true },
       orderBy: { employe: { nom: 'asc' } },
     });
+
+    return soldes.map((s) => ({
+      ...s,
+      droitsAcquisJours: s.droitsAcquis,
+      joursPris: s.joursConsommes,
+    }));
   }
 
-  async adjustSoldeConge(employeId: string, dto: AdjustSoldeCongeDto, tenantId: string) {
+  async recalculerSoldesConges(tenantId: string, annee = 2026, employeId?: string) {
+    const employes = await this.prisma.rhEmploye.findMany({
+      where: {
+        tenantId,
+        statutEmploi: { not: 'SORTI' },
+        ...(employeId ? { id: employeId } : {}),
+      },
+      select: { id: true },
+    });
+
+    const results: any[] = [];
+    for (const emp of employes) {
+      // Force recalculation of rights based on current dates and absences
+      const res = await this.calculerSoldeCongeEmploye(tenantId, emp.id, annee);
+      if (res) results.push(res);
+    }
+
+    return results;
+  }
+
+  async adjustSoldeConge(employeId: string, dto: AdjustSoldeCongeDto, tenantId: string, userId?: string) {
     const solde = await this.prisma.rhSoldeConge.findUnique({
       where: {
         tenantId_employeId_anneeReference: {
@@ -308,17 +523,17 @@ export class TempsAbsencesService {
       },
     });
 
-    const soldeDebut = solde?.soldeDebutAnnee ?? 0;
+    const soldeDebut = dto.soldeDebutAnnee ?? solde?.soldeDebutAnnee ?? 0;
     const acquis = dto.droitsAcquis ?? solde?.droitsAcquis ?? 0;
     const supAnc = dto.droitsSupplementairesAnciennete ?? solde?.droitsSupplementairesAnciennete ?? 0;
     const supEnf = dto.droitsSupplementairesEnfants ?? solde?.droitsSupplementairesEnfants ?? 0;
     const consommes = dto.joursConsommes ?? solde?.joursConsommes ?? 0;
-    const reporte = solde?.soldeReporte ?? 0;
+    const reporte = dto.soldeReporte ?? solde?.soldeReporte ?? 0;
 
     const totalDroits = soldeDebut + acquis + supAnc + supEnf + reporte;
     const restants = Math.max(0, totalDroits - consommes);
 
-    return this.prisma.rhSoldeConge.upsert({
+    const updated = await this.prisma.rhSoldeConge.upsert({
       where: {
         tenantId_employeId_anneeReference: {
           tenantId,
@@ -339,12 +554,36 @@ export class TempsAbsencesService {
         soldeReporte: reporte,
       },
       update: {
+        soldeDebutAnnee: soldeDebut,
         droitsAcquis: acquis,
         droitsSupplementairesAnciennete: supAnc,
         droitsSupplementairesEnfants: supEnf,
         joursConsommes: consommes,
         joursRestants: restants,
+        soldeReporte: reporte,
+      },
+      include: { employe: true },
+    });
+
+    await this.auditService.log({
+      tenantId,
+      utilisateurId: userId,
+      entiteNom: 'rh_solde_conge',
+      entiteId: updated.id,
+      actionAudit: 'MODIFICATION',
+      champsModifiesJson: {
+        annee: dto.anneeReference,
+        droitsAcquis: acquis,
+        joursConsommes: consommes,
+        joursRestants: restants,
+        motif: dto.motif ?? 'Ajustement manuel RH',
       },
     });
+
+    return {
+      ...updated,
+      droitsAcquisJours: updated.droitsAcquis,
+      joursPris: updated.joursConsommes,
+    };
   }
 }

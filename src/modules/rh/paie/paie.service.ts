@@ -6,13 +6,14 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../../../infrastructure/database/prisma.service';
 import { RhAuditService } from '../audit/rh-audit.service';
-import { CalculPaieService } from './calcul-paie.service';
+import { CalculPaieService, ItsBracket, PayrollVariableDetail } from './calcul-paie.service';
 import {
   BatchElementVariableDto,
   CalculateCyclePaieDto,
   CreateElementVariableDto,
   CreateRemunerationExceptionnelleDto,
   CreateRubriquePaieDto,
+  UpdateRubriquePaieDto,
   CreateSoldeToutCompteDto,
   OpenCyclePaieDto,
   SignerSoldeToutCompteDto,
@@ -57,6 +58,71 @@ export class PaieService {
         compteComptableCharge: dto.compteComptableCharge,
         compteComptableTiers: dto.compteComptableTiers,
       },
+    });
+  }
+
+  async updateRubrique(id: string, dto: UpdateRubriquePaieDto) {
+    const existing = await this.prisma.rhRubriquePaie.findUnique({
+      where: { id },
+    });
+    if (!existing) {
+      throw new NotFoundException(`Rubrique de paie introuvable.`);
+    }
+
+    if (dto.code && dto.code !== existing.code) {
+      const duplicate = await this.prisma.rhRubriquePaie.findFirst({
+        where: {
+          paysCode: dto.paysCode || existing.paysCode,
+          code: dto.code,
+          NOT: { id },
+        },
+      });
+      if (duplicate) {
+        throw new ConflictException(`Le code de rubrique ${dto.code} est déjà utilisé.`);
+      }
+    }
+
+    return this.prisma.rhRubriquePaie.update({
+      where: { id },
+      data: {
+        ...(dto.paysCode !== undefined ? { paysCode: dto.paysCode } : {}),
+        ...(dto.code !== undefined ? { code: dto.code } : {}),
+        ...(dto.libelle !== undefined ? { libelle: dto.libelle } : {}),
+        ...(dto.typeRubrique !== undefined ? { typeRubrique: dto.typeRubrique } : {}),
+        ...(dto.sensDefaut !== undefined ? { sensDefaut: dto.sensDefaut } : {}),
+        ...(dto.assujettiIts !== undefined ? { assujettiIts: dto.assujettiIts } : {}),
+        ...(dto.assujettiCnss !== undefined ? { assujettiCnss: dto.assujettiCnss } : {}),
+        ...(dto.assujettiVps !== undefined ? { assujettiVps: dto.assujettiVps } : {}),
+        ...(dto.formuleCalcul !== undefined ? { formuleCalcul: dto.formuleCalcul } : {}),
+        ...(dto.ordreAffichage !== undefined ? { ordreAffichage: dto.ordreAffichage } : {}),
+        ...(dto.compteComptableCharge !== undefined ? { compteComptableCharge: dto.compteComptableCharge || null } : {}),
+        ...(dto.compteComptableTiers !== undefined ? { compteComptableTiers: dto.compteComptableTiers || null } : {}),
+        ...(dto.actif !== undefined ? { actif: dto.actif } : {}),
+      },
+    });
+  }
+
+  async deleteRubrique(id: string) {
+    const existing = await this.prisma.rhRubriquePaie.findUnique({
+      where: { id },
+      include: {
+        bulletinLignes: { take: 1 },
+        elementsVariables: { take: 1 },
+      },
+    });
+    if (!existing) {
+      throw new NotFoundException(`Rubrique de paie introuvable.`);
+    }
+
+    if (existing.bulletinLignes.length > 0 || existing.elementsVariables.length > 0) {
+      return this.prisma.rhRubriquePaie.update({
+        where: { id },
+        data: { actif: false },
+      });
+    }
+
+    return this.prisma.rhRubriquePaie.delete({
+      where: { id },
     });
   }
 
@@ -233,6 +299,7 @@ export class PaieService {
       where: contractsWhere,
       include: {
         employe: true,
+        poste: true,
       },
     });
 
@@ -258,6 +325,112 @@ export class PaieService {
       where: { tenantId, cyclePaieId },
     });
 
+    const paysCode = cycle.etablissement?.paysCode;
+    if (!paysCode) {
+      throw new BadRequestException(
+        `L'établissement rattaché à ce cycle n'a aucun pays configuré.`,
+      );
+    }
+
+    // 1. Barème ITS actif et ses tranches depuis la base de données
+    const baremeIts = await this.prisma.rhBaremeIts.findFirst({
+      where: {
+        paysCode,
+        dateDebutValidite: { lte: cycle.dateFin },
+        OR: [{ dateFinValidite: null }, { dateFinValidite: { gte: cycle.dateDebut } }],
+      },
+      include: {
+        tranches: {
+          orderBy: { numeroTranche: 'asc' },
+        },
+      },
+      orderBy: { dateDebutValidite: 'desc' },
+    });
+
+    if (!baremeIts || baremeIts.tranches.length === 0) {
+      throw new BadRequestException(
+        `Aucun barème d'impôt sur les salaires (ITS) avec tranches n'est configuré en base pour le pays "${paysCode}". Veuillez le configurer dans les Paramètres RH.`,
+      );
+    }
+
+    const brackets: ItsBracket[] = baremeIts.tranches.map((t) => ({
+      numeroTranche: t.numeroTranche,
+      limiteInferieure: t.limiteInferieure,
+      limiteSuperieure: t.limiteSuperieure,
+      taux: t.taux,
+      montantDeductionFixe: t.montantDeductionFixe,
+    }));
+
+    // 2. Taux de cotisations sociales actives depuis la base de données
+    const socialCharges = await this.prisma.rhTauxChargeSociale.findMany({
+      where: {
+        paysCode,
+        actif: true,
+        dateDebutValidite: { lte: cycle.dateFin },
+        OR: [{ dateFinValidite: null }, { dateFinValidite: { gte: cycle.dateDebut } }],
+      },
+    });
+
+    if (socialCharges.length === 0) {
+      throw new BadRequestException(
+        `Aucun taux de cotisations sociales n'est configuré en base pour le pays "${paysCode}". Veuillez configurer les charges sociales dans les Paramètres RH.`,
+      );
+    }
+
+    const tauxCnssSal = socialCharges
+      .filter((c) => c.partSalariale === 'SALARIALE' || c.tauxSalarial > 0)
+      .reduce((sum, c) => sum + c.tauxSalarial, 0);
+
+    const chargesPatronales = socialCharges.filter(
+      (c) => c.partSalariale === 'PATRONALE' || c.tauxPatronal > 0,
+    );
+
+    const tauxVpsPat = chargesPatronales
+      .filter((c) => c.code.includes('VPS') || c.organismeCollecteur?.includes('DGI'))
+      .reduce((sum, c) => sum + c.tauxPatronal, 0);
+
+    const cnssPatronales = chargesPatronales.filter(
+      (c) => !c.code.includes('VPS') && !c.organismeCollecteur?.includes('DGI'),
+    );
+
+    // Détection de la branche Accidents du Travail & Risques Professionnels (AT/MP)
+    const chargeRisqueAt = cnssPatronales.find(
+      (c) =>
+        c.code === 'CNSS_PATRONALE_RISQUES' ||
+        c.code.includes('RISQUE') ||
+        c.code.includes('ACCIDENT') ||
+        c.libelle.toLowerCase().includes('accident') ||
+        c.libelle.toLowerCase().includes('risque'),
+    );
+    const defaultTauxRisque = chargeRisqueAt?.tauxPatronal ?? 2.0;
+
+    // Branches patronales fixes communes (ex: Prestations Familiales + Retraite patronale)
+    const tauxCnssPatBaseSansRisque = cnssPatronales
+      .filter((c) => c !== chargeRisqueAt)
+      .reduce((sum, c) => sum + c.tauxPatronal, 0);
+
+    // 3. Paramètres du pays (durée mensuelle légale)
+    const countryParams = await this.prisma.rhParametrePays.findMany({
+      where: { paysCode },
+    });
+    const dureeLegaleParam = countryParams.find((p) =>
+      ['DUREE_LEGALE_MENSUELLE', 'HEURES_MENSUELLES', 'DUREE_MENSUELLE'].includes(p.codeParametre),
+    );
+    const heuresMensuellesLegales = dureeLegaleParam?.valeurNumerique || 173.33;
+
+    // 4. Charger le catalogue des rubriques actives depuis la base
+    const rubriquesCatalogue = await this.prisma.rhRubriquePaie.findMany({
+      where: { paysCode, actif: true },
+      orderBy: { ordreAffichage: 'asc' },
+    });
+
+    if (rubriquesCatalogue.length === 0) {
+      throw new BadRequestException(
+        `Aucune rubrique de paie active n'est configurée en base pour le pays "${paysCode}". Veuillez configurer le catalogue des rubriques dans les Paramètres RH.`,
+      );
+    }
+    const rubriqueIdByCode = new Map(rubriquesCatalogue.map((r) => [r.code, r.id]));
+
     const calculatedPayslips: any[] = [];
 
     for (const contract of contracts) {
@@ -265,6 +438,20 @@ export class PaieService {
 
       // Variables de l'employé
       const empVars = variables.filter((v) => v.employeId === empId);
+      const variablesDetails: PayrollVariableDetail[] = empVars.map((v) => ({
+        rubriquePaieId: v.rubriquePaieId,
+        codeRubrique: v.rubriquePaie.code,
+        libelleRubrique: v.rubriquePaie.libelle,
+        typeRubrique: v.rubriquePaie.typeRubrique,
+        sens:
+          (v.rubriquePaie.sensDefaut as any) ||
+          (v.rubriquePaie.typeRubrique.startsWith('RETENUE') ? 'RETENUE' : 'GAIN'),
+        montant: v.montant,
+        base: v.base ?? undefined,
+        taux: v.taux ?? undefined,
+        ordre: v.rubriquePaie.ordreAffichage,
+      }));
+
       const primesImposables = empVars
         .filter((v) => v.rubriquePaie.typeRubrique === 'GAIN_BRUT' && v.rubriquePaie.code !== 'R100')
         .reduce((sum, v) => sum + v.montant, 0);
@@ -291,9 +478,22 @@ export class PaieService {
       // Rémunération exceptionnelle éventuelle
       const empExcep = remunerationsExcep.find((r) => r.employeId === empId);
 
+      // Heures normales du salarié (durée hebdo du contrat ou durée légale du pays)
+      const heuresNormales = contract.dureeHebdoContrat
+        ? (contract.dureeHebdoContrat * 52) / 12
+        : heuresMensuellesLegales;
+
+      // Taux de risque Accidents du Travail & Risques Pro individualisé :
+      // 1. Contrat (surcharge individuelle salarié)
+      // 2. Poste de travail (taux de risque du métier)
+      // 3. Taux standard national CNSS (base de données)
+      const tauxRisqueEffectif =
+        contract.tauxRisqueAt ?? contract.poste?.tauxRisqueAt ?? defaultTauxRisque;
+      const tauxCnssPatEmploye = tauxCnssPatBaseSansRisque + tauxRisqueEffectif;
+
       const calcResult = this.calculPaieService.calculatePayslip({
         salaireBase: contract.salaireBaseMensuel,
-        heuresNormales: 173.33,
+        heuresNormales,
         heuresSup15: hs15,
         heuresSup50: hs50,
         heuresSupNuit: hsNuit,
@@ -302,6 +502,12 @@ export class PaieService {
         indemnitesNonImposables: indemnitesNonImposables,
         avantagesEnNature: avantagesNature,
         retenuesDiverses: retenuesDiverses,
+        variablesDetails,
+        tauxCnssSalarial: tauxCnssSal,
+        tauxCnssPatronal: tauxCnssPatEmploye,
+        tauxVpsPatronal: tauxVpsPat,
+        brackets,
+        rubriquesCatalogue,
         remunerationExceptionnelle: empExcep
           ? {
               montantBrut: empExcep.montantBrut,
@@ -386,6 +592,7 @@ export class PaieService {
       await this.prisma.rhBulletinPaieLigne.createMany({
         data: calcResult.detailsLignes.map((l) => ({
           bulletinPaieId: payslip.id,
+          rubriquePaieId: rubriqueIdByCode.get(l.codeRubrique) || null,
           codeRubrique: l.codeRubrique,
           libelleRubrique: l.libelleRubrique,
           typeRubrique: l.typeRubrique as any,
@@ -564,11 +771,48 @@ export class PaieService {
       salaireMoyen12m = contrat?.salaireBaseMensuel ?? dto.montantBrut;
     }
 
+    const cycle = await this.prisma.rhCyclePaie.findFirst({
+      where: { id: cyclePaieId, tenantId },
+      include: { etablissement: true },
+    });
+    if (!cycle) throw new NotFoundException('Cycle de paie introuvable');
+
+    const paysCode = cycle.etablissement?.paysCode;
+    if (!paysCode) {
+      throw new BadRequestException("L'établissement rattaché au cycle n'a aucun pays configuré.");
+    }
+
+    const baremeIts = await this.prisma.rhBaremeIts.findFirst({
+      where: { paysCode },
+      include: { tranches: { orderBy: { numeroTranche: 'asc' } } },
+      orderBy: { dateDebutValidite: 'desc' },
+    });
+    if (!baremeIts || baremeIts.tranches.length === 0) {
+      throw new BadRequestException(
+        `Aucun barème d'impôt progressif ITS n'est configuré en base pour le pays "${paysCode}".`,
+      );
+    }
+    const brackets: ItsBracket[] = baremeIts.tranches.map((t) => ({
+      numeroTranche: t.numeroTranche,
+      limiteInferieure: t.limiteInferieure,
+      limiteSuperieure: t.limiteSuperieure,
+      taux: t.taux,
+      montantDeductionFixe: t.montantDeductionFixe,
+    }));
+
+    const countryParams = await this.prisma.rhParametrePays.findMany({ where: { paysCode } });
+    const abattementParam = countryParams.find(
+      (p) => p.codeParametre === 'ABATTEMENT_REMUNERATION_EXCEPTIONNELLE',
+    );
+    const tauxAbattement =
+      dto.tauxAbattementApplique ?? (abattementParam?.valeurNumerique ?? 25);
+
     const quotientDetails = this.calculPaieService.calculateQuotientTax(
       salaireMoyen12m,
       dto.montantBrut,
-      dto.tauxAbattementApplique ?? 25,
+      tauxAbattement,
       salaireMoyen12m,
+      brackets,
     );
 
     return this.prisma.rhRemunerationExceptionnelle.create({

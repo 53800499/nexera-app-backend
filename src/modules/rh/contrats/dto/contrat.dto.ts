@@ -10,6 +10,7 @@ import {
   IsString,
   IsUUID,
   Min,
+  Max,
 } from 'class-validator';
 import {
   RhContractType,
@@ -81,6 +82,13 @@ export class CreateContratDto {
   @IsOptional()
   dureeHebdoContrat?: number;
 
+  @ApiPropertyOptional({ example: 2.0, description: 'Taux patronal spécifique Accidents du Travail / Risques Pro (%)' })
+  @IsNumber()
+  @Min(0)
+  @Max(100)
+  @IsOptional()
+  tauxRisqueAt?: number;
+
   @ApiPropertyOptional()
   @IsUUID()
   @IsOptional()
@@ -134,6 +142,13 @@ export class UpdateContratDto {
   @IsNumber()
   @IsOptional()
   dureeHebdoContrat?: number;
+
+  @ApiPropertyOptional({ example: 2.0, description: 'Taux patronal spécifique Accidents du Travail / Risques Pro (%)' })
+  @IsNumber()
+  @Min(0)
+  @Max(100)
+  @IsOptional()
+  tauxRisqueAt?: number;
 
   @ApiPropertyOptional()
   @IsUUID()

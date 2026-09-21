@@ -180,7 +180,12 @@ export class AdjustSoldeCongeDto {
   @IsNotEmpty()
   anneeReference: number;
 
-  @ApiPropertyOptional({ example: 2 })
+  @ApiPropertyOptional({ example: 0 })
+  @IsNumber()
+  @IsOptional()
+  soldeDebutAnnee?: number;
+
+  @ApiPropertyOptional({ example: 24 })
   @IsNumber()
   @IsOptional()
   droitsAcquis?: number;
@@ -199,4 +204,27 @@ export class AdjustSoldeCongeDto {
   @IsNumber()
   @IsOptional()
   joursConsommes?: number;
+
+  @ApiPropertyOptional({ example: 0 })
+  @IsNumber()
+  @IsOptional()
+  soldeReporte?: number;
+
+  @ApiPropertyOptional({ example: "Régularisation reliquat N-1" })
+  @IsString()
+  @IsOptional()
+  motif?: string;
 }
+
+export class RecalculerSoldesDto {
+  @ApiPropertyOptional({ example: 2026 })
+  @IsInt()
+  @IsOptional()
+  annee?: number;
+
+  @ApiPropertyOptional()
+  @IsString()
+  @IsOptional()
+  employeId?: string;
+}
+

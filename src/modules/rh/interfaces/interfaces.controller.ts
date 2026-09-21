@@ -82,6 +82,47 @@ export class InterfacesController {
   }
 
   // =========================================================================
+  // ÉCRITURES COMPTABLES OD DE SOLDE DE TOUT COMPTE (STC SYSCOHADA)
+  // =========================================================================
+
+  /**
+   * Consulter le projet d'écriture comptable d'OD pour un Solde de Tout Compte (STC)
+   */
+  @Get('od-stc/:stcId')
+  @Permissions('rh.accounting.export')
+  @ApiOperation({
+    summary: 'Consulter l’écriture comptable OD SYSCOHADA pour un STC',
+    description: 'Renvoie l’écriture d’OD du solde de tout compte avec les comptes de charges (salaires dus, préavis, licenciement, congés payés) au débit et tiers au crédit.',
+  })
+  @ApiParam({ name: 'stcId', description: 'Identifiant UUID du solde de tout compte' })
+  @ApiResponse({ status: 200, description: 'Écriture comptable OD de solde de tout compte' })
+  @ApiResponse({ status: 404, description: 'Aucun STC trouvé' })
+  getOdStc(
+    @Param('stcId') stcId: string,
+    @Request() req: { user: { tenantId: string } },
+  ) {
+    return this.interfacesService.getOdStc(stcId, req.user.tenantId);
+  }
+
+  /**
+   * Générer et comptabiliser l'OD de Solde de Tout Compte
+   */
+  @Post('od-stc/:stcId/generer')
+  @Permissions('rh.accounting.export')
+  @ApiOperation({
+    summary: 'Générer la pièce comptable OD de Solde de Tout Compte',
+    description: 'Génère la pièce comptable d’OD pour le départ du salarié en garantissant un équilibre strict Débit = Crédit.',
+  })
+  @ApiParam({ name: 'stcId', description: 'Identifiant UUID du solde de tout compte' })
+  @ApiResponse({ status: 201, description: 'Écriture comptable d’OD STC générée et équilibrée' })
+  generateOdStc(
+    @Param('stcId') stcId: string,
+    @Request() req: { user: { sub: string; tenantId: string } },
+  ) {
+    return this.interfacesService.generateOdStc(stcId, req.user.tenantId, req.user.sub);
+  }
+
+  // =========================================================================
   // DÉCLARATIONS SOCIALES ET FISCALES OFFICIELLES (M7)
   // =========================================================================
 

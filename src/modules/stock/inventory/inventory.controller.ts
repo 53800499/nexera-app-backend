@@ -6,15 +6,19 @@ import {
   Post,
   Query,
   Request,
+  Res,
 } from '@nestjs/common';
+import { Response } from 'express';
 import {
   ApiBearerAuth,
   ApiOperation,
+  ApiParam,
   ApiQuery,
   ApiTags,
 } from '@nestjs/swagger';
 import { Permissions } from '../../../common/decorators/permissions.decorator';
 import { InventoryService } from './inventory.service';
+import { InventoryPdfService } from './inventory-pdf.service';
 import {
   CreateInventorySessionDto,
   SubmitInventoryCountsDto,
@@ -24,13 +28,51 @@ import {
 @ApiBearerAuth('access-token')
 @Controller('stock/inventories')
 export class InventoryController {
-  constructor(private readonly inventoryService: InventoryService) {}
+  constructor(
+    private readonly inventoryService: InventoryService,
+    private readonly inventoryPdfService: InventoryPdfService,
+  ) {}
 
   @Get()
   @Permissions('stock.read')
   @ApiOperation({ summary: 'Lister les sessions d’inventaire (UC-S06)' })
   findAll(@Request() req: { user: { tenantId: string } }) {
     return this.inventoryService.findAll(req.user.tenantId);
+  }
+
+  @Get(':id/pdf')
+  @Permissions('stock.read')
+  @ApiOperation({
+    summary: 'Télécharger le rapport ou la feuille de comptage en PDF',
+  })
+  @ApiParam({ name: 'id', format: 'uuid' })
+  @ApiQuery({ name: 'type', required: false, enum: ['report', 'sheet'] })
+  async downloadPdf(
+    @Param('id') id: string,
+    @Query('type') type: 'report' | 'sheet' | undefined,
+    @Request() req: { user: { tenantId: string } },
+    @Res() res: Response,
+  ) {
+    try {
+      const { buffer, filename } = await this.inventoryPdfService.generatePdf(
+        req.user.tenantId,
+        id,
+        type === 'sheet' ? 'sheet' : 'report',
+      );
+      res.set({
+        'Content-Type': 'application/pdf',
+        'Content-Disposition': `inline; filename="${filename}"`,
+        'Cache-Control': 'private, max-age=60',
+      });
+      res.send(buffer);
+    } catch (err: any) {
+      console.error('[InventoryPdfService] Error generating PDF:', err);
+      const status = err?.status || 500;
+      res.status(status).json({
+        statusCode: status,
+        message: err?.message || 'Erreur lors de la génération du PDF d’inventaire',
+      });
+    }
   }
 
   @Get(':id')

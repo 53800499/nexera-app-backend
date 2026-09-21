@@ -5,6 +5,7 @@ import { StockIntegrationService } from '../stock-integration.service';
 import { InventoryController } from './inventory.controller';
 import { InventoryService } from './inventory.service';
 import { InventoryFreezeGuard } from './inventory-freeze.guard';
+import { InventoryPdfService } from './inventory-pdf.service';
 
 @Module({
   imports: [DatabaseModule, SettingsModule],
@@ -13,7 +14,8 @@ import { InventoryFreezeGuard } from './inventory-freeze.guard';
     InventoryService,
     InventoryFreezeGuard,
     StockIntegrationService,
+    InventoryPdfService,
   ],
-  exports: [InventoryService, InventoryFreezeGuard],
+  exports: [InventoryService, InventoryFreezeGuard, InventoryPdfService],
 })
 export class InventoryModule {}
