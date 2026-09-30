@@ -775,7 +775,21 @@ export class InvoicesService {
       throw new BadRequestException(CrmMessages.invoice.CREDIT_REQUIRES_ISSUED);
     }
 
-    const maxAmount = original.amountDue > 0 ? original.amountDue : original.totalTtc;
+    const existingCreditsTotal = (original.creditNotes ?? [])
+      .filter((c: any) => c.status !== InvoiceStatus.CANCELLED)
+      .reduce((sum: number, c: any) => sum + (c.totalTtc ?? 0), 0);
+
+    const maxAmount = Math.max(
+      0,
+      roundDownCent(original.totalTtc - existingCreditsTotal),
+    );
+
+    if (maxAmount <= 0) {
+      throw new BadRequestException(
+        'Cette facture a déjà été intégralement couverte par un ou plusieurs avoirs.',
+      );
+    }
+
     let totalTtc = dto.amountTtc ?? maxAmount;
 
     if (totalTtc > maxAmount + 0.01) {
@@ -872,14 +886,20 @@ export class InvoicesService {
           },
         });
       } else {
+        const newAmountDue = Math.max(
+          0,
+          roundDownCent(original.amountDue - totalTtc),
+        );
         await tx.invoice.update({
           where: { id: original.id },
           data: {
-            amountDue: roundDownCent(maxAmount - totalTtc),
+            amountDue: newAmountDue,
             status:
-              original.amountPaid > 0
-                ? InvoiceStatus.PARTIAL
-                : InvoiceStatus.ISSUED,
+              newAmountDue === 0
+                ? InvoiceStatus.PAID
+                : original.amountPaid > 0
+                  ? InvoiceStatus.PARTIAL
+                  : InvoiceStatus.ISSUED,
           },
         });
       }
@@ -1299,8 +1319,20 @@ export class InvoicesService {
   }
 
   private enrichResponse(invoice: any) {
+    const payments = (invoice.payments || []).map((p: any) => {
+      const parent = p.payment || {};
+      return {
+        ...p,
+        paymentDate: p.paymentDate || parent.paymentDate || p.createdAt,
+        paymentMethod: p.paymentMethod || parent.paymentMethod || 'other',
+        reference: p.reference ?? parent.reference ?? null,
+        notes: p.notes ?? parent.notes ?? null,
+      };
+    });
+
     return {
       ...invoice,
+      payments,
       legalMentions: {
         number: invoice.number,
         issueDate: invoice.issueDate,

@@ -425,6 +425,15 @@ export class MecefClientService {
     settings: any,
     isProduction = false,
   ): Promise<string> {
+    // 1. Source de vérité DGI : IFU rattaché au jeton JWT officiel e-MECeF
+    if (settings?.mecefApiKey) {
+      const jwt = this.parseJwtPayload(this.sanitizeToken(settings.mecefApiKey));
+      const tokenIfu = jwt?.unique_name?.split('|')?.[0]?.trim();
+      if (tokenIfu && tokenIfu.length >= 10) {
+        return tokenIfu;
+      }
+    }
+
     try {
       const contribuable = await (this.prisma as any).taxContribuable?.findFirst({
         where: { tenantId, isDeleted: false },
@@ -464,10 +473,15 @@ export class MecefClientService {
     }
 
     // Auto-correction pour l'environnement de Test / Développeur officiel DGI
-    if (clean.includes('developper.impots.bj') && !clean.includes('/sygmef-emcf')) {
-      clean = `${clean}/sygmef-emcf/api`;
-    } else if (clean.includes('developper.impots.bj/sygmef-emcf') && !clean.includes('/api')) {
-      clean = `${clean}/api`;
+    if (clean.includes('developper.impots.bj')) {
+      if (clean.includes('sygmef-test')) {
+        clean = clean.replace('sygmef-test', 'sygmef-emcf');
+      }
+      if (!clean.includes('/sygmef-emcf')) {
+        clean = `${clean}/sygmef-emcf/api`;
+      } else if (!clean.includes('/api')) {
+        clean = `${clean}/api`;
+      }
     }
 
     // Auto-correction pour les URLs officielles de la plateforme SyGMEF DGI Bénin
