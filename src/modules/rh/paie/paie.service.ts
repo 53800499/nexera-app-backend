@@ -3,8 +3,10 @@ import {
   NotFoundException,
   ConflictException,
   BadRequestException,
+  Optional,
 } from '@nestjs/common';
 import { PrismaService } from '../../../infrastructure/database/prisma.service';
+import { IntegrationEventBus } from '../../../shared/events/integration-event.bus';
 import { RhAuditService } from '../audit/rh-audit.service';
 import { CalculPaieService, ItsBracket, PayrollVariableDetail } from './calcul-paie.service';
 import {
@@ -25,6 +27,7 @@ export class PaieService {
     private readonly prisma: PrismaService,
     private readonly auditService: RhAuditService,
     private readonly calculPaieService: CalculPaieService,
+    @Optional() private readonly integrationBus?: IntegrationEventBus,
   ) {}
 
   // ---------------- RUBRIQUES DE PAIE ----------------
@@ -662,6 +665,39 @@ export class PaieService {
       actionAudit: 'MODIFICATION',
       champsModifiesJson: { statut: 'VALIDE' },
     });
+
+    // Convergence M7 Fiscalité : calcul des totaux et émission de l'événement
+    try {
+      const totals = await this.prisma.rhBulletinPaie.aggregate({
+        where: { cyclePaieId, tenantId },
+        _sum: {
+          montantImpotSalaire: true,
+          montantVpsPatronale: true,
+          montantCnssSalariale: true,
+          montantCnssPatronale: true,
+        },
+        _count: true,
+      });
+
+      if (this.integrationBus) {
+        await this.integrationBus.publish({
+          eventName: 'payroll.cycle.validated',
+          tenantId,
+          occurredAt: new Date(),
+          payload: {
+            cyclePaieId,
+            annee: cycle.annee,
+            mois: cycle.mois,
+            totalIts: totals._sum.montantImpotSalaire || 0,
+            totalVps: totals._sum.montantVpsPatronale || 0,
+            totalCnss: (totals._sum.montantCnssSalariale || 0) + (totals._sum.montantCnssPatronale || 0),
+            nombreBulletins: totals._count,
+          },
+        });
+      }
+    } catch (busErr) {
+      console.error('Erreur publication événement payroll.cycle.validated vers M7 Fiscalité :', busErr);
+    }
 
     return updated;
   }

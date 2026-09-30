@@ -1,8 +1,11 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
+  Param,
   Post,
+  Put,
   Query,
   UseGuards,
 } from '@nestjs/common';
@@ -59,5 +62,33 @@ export class AutresTaxesController {
     },
   ) {
     return this.autresTaxesService.creerDeclarationGenerique(body);
+  }
+
+  @Put('declarations/:id/valider')
+  @Permissions('fiscalite.write')
+  @ApiOperation({ summary: 'Valider une déclaration générique' })
+  async validerDeclaration(@Param('id') id: string) {
+    return this.autresTaxesService.validerDeclaration(id);
+  }
+
+  @Put('declarations/:id/declarer')
+  @Permissions('fiscalite.write')
+  @ApiOperation({ summary: 'Marquer une déclaration générique comme déclarée / télétransmise' })
+  async declarerDeclaration(@Param('id') id: string) {
+    return this.autresTaxesService.declarerDeclaration(id);
+  }
+
+  @Put('declarations/:id/payer')
+  @Permissions('fiscalite.write')
+  @ApiOperation({ summary: 'Marquer une déclaration générique comme payée' })
+  async marquerPayee(@Param('id') id: string) {
+    return this.autresTaxesService.marquerPayee(id);
+  }
+
+  @Delete('declarations/:id')
+  @Permissions('fiscalite.write')
+  @ApiOperation({ summary: 'Supprimer une déclaration générique' })
+  async supprimerDeclaration(@Param('id') id: string) {
+    return this.autresTaxesService.supprimerDeclaration(id);
   }
 }

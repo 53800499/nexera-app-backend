@@ -24,8 +24,12 @@ import { ReferentielNdfService } from './referentiel-ndf.service';
 import {
   CalculerIndemniteKmDto,
   CalculerPerDiemDto,
+  CreateBaremeKmDto,
+  CreateBaremePerDiemDto,
   CreateCategorieDepenseDto,
   CreatePolitiqueDepenseDto,
+  UpdateBaremeKmDto,
+  UpdateBaremePerDiemDto,
   UpdateCategorieDepenseDto,
 } from '../dto/referentiel.dto';
 
@@ -83,7 +87,7 @@ export class ReferentielNdfController {
   }
 
   @Post('politiques')
-  @Permissions('ndf.settings.manage')
+  @Permissions('ndf.settings.manage', 'manage:ndf')
   @ApiOperation({ summary: 'Définir une politique/plafond de dépenses' })
   async createPolitique(
     @Request() req: any,
@@ -91,6 +95,10 @@ export class ReferentielNdfController {
   ) {
     return this.referentielService.createPolitique(req.user.tenantId, dto);
   }
+
+  // ----------------------------------------------------
+  // BARÈMES KILOMÉTRIQUES (CGI BÉNIN 2026)
+  // ----------------------------------------------------
 
   @Get('baremes-km')
   @Permissions('ndf.read')
@@ -100,6 +108,37 @@ export class ReferentielNdfController {
     return this.referentielService.getBaremesKm(paysCode);
   }
 
+  @Post('baremes-km')
+  @Permissions('ndf.settings.manage', 'manage:ndf')
+  @ApiOperation({ summary: 'Créer un barème kilométrique' })
+  async createBaremeKm(@Body() dto: CreateBaremeKmDto) {
+    return this.referentielService.createBaremeKm(dto);
+  }
+
+  @Put('baremes-km/:id')
+  @Permissions('ndf.settings.manage', 'manage:ndf')
+  @ApiOperation({ summary: 'Mettre à jour un barème kilométrique' })
+  async updateBaremeKm(
+    @Param('id') id: string,
+    @Body() dto: UpdateBaremeKmDto,
+  ) {
+    return this.referentielService.updateBaremeKm(id, dto);
+  }
+
+  @Delete('baremes-km/:id')
+  @Permissions('ndf.settings.manage', 'manage:ndf')
+  @ApiOperation({ summary: 'Supprimer un barème kilométrique' })
+  async deleteBaremeKm(@Param('id') id: string) {
+    return this.referentielService.deleteBaremeKm(id);
+  }
+
+  @Post('baremes-km/seed-officiel-benin')
+  @Permissions('ndf.settings.manage', 'manage:ndf')
+  @ApiOperation({ summary: 'Réinitialiser les barèmes kilométriques officiels Bénin 2026' })
+  async seedBaremesKmOfficielBenin() {
+    return this.referentielService.seedBaremesKmOfficielBenin();
+  }
+
   @Post('calculer-indemnite-km')
   @Permissions('ndf.read')
   @ApiOperation({ summary: 'Calculer le montant d’une indemnité kilométrique' })
@@ -107,12 +146,47 @@ export class ReferentielNdfController {
     return this.referentielService.calculerIndemniteKm(dto);
   }
 
+  // ----------------------------------------------------
+  // BARÈMES PER DIEM (FORFAITS JOURNALIERS DE MISSION)
+  // ----------------------------------------------------
+
   @Get('baremes-per-diem')
   @Permissions('ndf.read')
   @ApiOperation({ summary: 'Lister les barèmes per diem par zone géographique' })
   @ApiQuery({ name: 'paysCode', required: false, example: 'BJ' })
   async getBaremesPerDiem(@Query('paysCode') paysCode?: string) {
     return this.referentielService.getBaremesPerDiem(paysCode);
+  }
+
+  @Post('baremes-per-diem')
+  @Permissions('ndf.settings.manage', 'manage:ndf')
+  @ApiOperation({ summary: 'Créer un barème per diem' })
+  async createBaremePerDiem(@Body() dto: CreateBaremePerDiemDto) {
+    return this.referentielService.createBaremePerDiem(dto);
+  }
+
+  @Put('baremes-per-diem/:id')
+  @Permissions('ndf.settings.manage', 'manage:ndf')
+  @ApiOperation({ summary: 'Mettre à jour un barème per diem' })
+  async updateBaremePerDiem(
+    @Param('id') id: string,
+    @Body() dto: UpdateBaremePerDiemDto,
+  ) {
+    return this.referentielService.updateBaremePerDiem(id, dto);
+  }
+
+  @Delete('baremes-per-diem/:id')
+  @Permissions('ndf.settings.manage', 'manage:ndf')
+  @ApiOperation({ summary: 'Supprimer un barème per diem' })
+  async deleteBaremePerDiem(@Param('id') id: string) {
+    return this.referentielService.deleteBaremePerDiem(id);
+  }
+
+  @Post('baremes-per-diem/seed-officiel-benin')
+  @Permissions('ndf.settings.manage', 'manage:ndf')
+  @ApiOperation({ summary: 'Réinitialiser les barèmes per diem officiels Bénin 2026' })
+  async seedBaremesPerDiemOfficielBenin() {
+    return this.referentielService.seedBaremesPerDiemOfficielBenin();
   }
 
   @Post('calculer-per-diem')
@@ -130,3 +204,4 @@ export class ReferentielNdfController {
     return this.referentielService.getParametresPays(paysCode);
   }
 }
+

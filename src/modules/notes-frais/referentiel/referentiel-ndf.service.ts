@@ -7,8 +7,12 @@ import { PrismaService } from '../../../infrastructure/database/prisma.service';
 import {
   CalculerIndemniteKmDto,
   CalculerPerDiemDto,
+  CreateBaremeKmDto,
+  CreateBaremePerDiemDto,
   CreateCategorieDepenseDto,
   CreatePolitiqueDepenseDto,
+  UpdateBaremeKmDto,
+  UpdateBaremePerDiemDto,
 } from '../dto/referentiel.dto';
 
 @Injectable()
@@ -140,8 +144,124 @@ export class ReferentielNdfService {
   async getBaremesKm(paysCode = 'BJ') {
     return this.prisma.ndfBaremeKilometrique.findMany({
       where: { paysCode, isDeleted: false },
-      orderBy: { puissanceFiscaleMin: 'asc' },
+      orderBy: [{ typeVehicule: 'asc' }, { puissanceFiscaleMin: 'asc' }],
     });
+  }
+
+  async createBaremeKm(dto: CreateBaremeKmDto) {
+    return this.prisma.ndfBaremeKilometrique.create({
+      data: {
+        paysCode: dto.paysCode || 'BJ',
+        puissanceFiscaleMin: dto.puissanceFiscaleMin,
+        puissanceFiscaleMax: dto.puissanceFiscaleMax ?? null,
+        typeVehicule: (dto.typeVehicule as any) || 'VOITURE',
+        tauxParKm: dto.tauxParKm,
+        deviseCode: dto.deviseCode || 'XOF',
+        dateDebutValidite: new Date(dto.dateDebutValidite),
+        dateFinValidite: dto.dateFinValidite ? new Date(dto.dateFinValidite) : null,
+        texteReference: dto.texteReference || 'Barème fiscal kilométrique Bénin 2026',
+      },
+    });
+  }
+
+  async updateBaremeKm(id: string, dto: UpdateBaremeKmDto) {
+    const existing = await this.prisma.ndfBaremeKilometrique.findUnique({ where: { id } });
+    if (!existing) {
+      throw new NotFoundException('Barème kilométrique introuvable');
+    }
+    return this.prisma.ndfBaremeKilometrique.update({
+      where: { id },
+      data: {
+        ...(dto.puissanceFiscaleMin !== undefined && { puissanceFiscaleMin: dto.puissanceFiscaleMin }),
+        ...(dto.puissanceFiscaleMax !== undefined && { puissanceFiscaleMax: dto.puissanceFiscaleMax }),
+        ...(dto.typeVehicule !== undefined && { typeVehicule: dto.typeVehicule as any }),
+        ...(dto.tauxParKm !== undefined && { tauxParKm: dto.tauxParKm }),
+        ...(dto.deviseCode !== undefined && { deviseCode: dto.deviseCode }),
+        ...(dto.dateDebutValidite !== undefined && { dateDebutValidite: new Date(dto.dateDebutValidite) }),
+        ...(dto.dateFinValidite !== undefined && { dateFinValidite: dto.dateFinValidite ? new Date(dto.dateFinValidite) : null }),
+        ...(dto.texteReference !== undefined && { texteReference: dto.texteReference }),
+      },
+    });
+  }
+
+  async deleteBaremeKm(id: string) {
+    const existing = await this.prisma.ndfBaremeKilometrique.findUnique({ where: { id } });
+    if (!existing) {
+      throw new NotFoundException('Barème kilométrique introuvable');
+    }
+    return this.prisma.ndfBaremeKilometrique.update({
+      where: { id },
+      data: { isDeleted: true },
+    });
+  }
+
+  async seedBaremesKmOfficielBenin() {
+    const baremesOfficiels = [
+      {
+        paysCode: 'BJ',
+        puissanceFiscaleMin: 1,
+        puissanceFiscaleMax: 6,
+        typeVehicule: 'VOITURE' as const,
+        tauxParKm: 250,
+        deviseCode: 'XOF',
+        texteReference: 'Barème fiscal kilométrique Bénin 2026 (<= 6 CV) - CGI Art. 22',
+        dateDebutValidite: new Date('2026-01-01T00:00:00Z'),
+      },
+      {
+        paysCode: 'BJ',
+        puissanceFiscaleMin: 7,
+        puissanceFiscaleMax: 10,
+        typeVehicule: 'VOITURE' as const,
+        tauxParKm: 350,
+        deviseCode: 'XOF',
+        texteReference: 'Barème fiscal kilométrique Bénin 2026 (7 à 10 CV) - CGI Art. 22',
+        dateDebutValidite: new Date('2026-01-01T00:00:00Z'),
+      },
+      {
+        paysCode: 'BJ',
+        puissanceFiscaleMin: 11,
+        puissanceFiscaleMax: null,
+        typeVehicule: 'VOITURE' as const,
+        tauxParKm: 450,
+        deviseCode: 'XOF',
+        texteReference: 'Barème fiscal kilométrique Bénin 2026 (> 10 CV) - CGI Art. 22',
+        dateDebutValidite: new Date('2026-01-01T00:00:00Z'),
+      },
+      {
+        paysCode: 'BJ',
+        puissanceFiscaleMin: 1,
+        puissanceFiscaleMax: null,
+        typeVehicule: 'MOTO' as const,
+        tauxParKm: 125,
+        deviseCode: 'XOF',
+        texteReference: 'Barème kilométrique motos Bénin 2026 - CGI Art. 22',
+        dateDebutValidite: new Date('2026-01-01T00:00:00Z'),
+      },
+    ];
+
+    for (const b of baremesOfficiels) {
+      const existing = await this.prisma.ndfBaremeKilometrique.findFirst({
+        where: {
+          paysCode: b.paysCode,
+          typeVehicule: b.typeVehicule,
+          puissanceFiscaleMin: b.puissanceFiscaleMin,
+          isDeleted: false,
+        },
+      });
+
+      if (existing) {
+        await this.prisma.ndfBaremeKilometrique.update({
+          where: { id: existing.id },
+          data: b,
+        });
+      } else {
+        await this.prisma.ndfBaremeKilometrique.create({
+          data: b,
+        });
+      }
+    }
+
+    return this.getBaremesKm('BJ');
   }
 
   async calculerIndemniteKm(dto: CalculerIndemniteKmDto) {
@@ -151,7 +271,7 @@ export class ReferentielNdfService {
     const baremes = await this.prisma.ndfBaremeKilometrique.findMany({
       where: {
         paysCode,
-        typeVehicule,
+        typeVehicule: typeVehicule as any,
         isDeleted: false,
       },
       orderBy: { puissanceFiscaleMin: 'asc' },
@@ -171,7 +291,7 @@ export class ReferentielNdfService {
 
     if (!bareme) {
       throw new BadRequestException(
-        `Aucune tranche de barème trouvée pour ${dto.puissanceFiscale} CV`,
+        `Aucune tranche de barème trouvée pour ${dto.puissanceFiscale} CV (${typeVehicule})`,
       );
     }
 
@@ -180,6 +300,7 @@ export class ReferentielNdfService {
     return {
       distanceKm: dto.distanceKm,
       puissanceFiscale: dto.puissanceFiscale,
+      typeVehicule: bareme.typeVehicule,
       tauxParKm: bareme.tauxParKm,
       deviseCode: bareme.deviseCode,
       montantTotal,
@@ -195,23 +316,161 @@ export class ReferentielNdfService {
   async getBaremesPerDiem(paysCode = 'BJ') {
     return this.prisma.ndfBaremePerDiem.findMany({
       where: { paysCode, isDeleted: false },
-      orderBy: { zoneGeographique: 'asc' },
+      orderBy: { montantJour: 'asc' },
     });
+  }
+
+  async createBaremePerDiem(dto: CreateBaremePerDiemDto) {
+    return this.prisma.ndfBaremePerDiem.create({
+      data: {
+        paysCode: dto.paysCode || 'BJ',
+        zoneGeographique: dto.zoneGeographique,
+        categorieProfessionnelleLibelle: dto.categorieProfessionnelleLibelle || 'TOUTES',
+        montantJour: dto.montantJour,
+        deviseCode: dto.deviseCode || 'XOF',
+        couvreHebergement: dto.couvreHebergement ?? false,
+        couvreRestauration: dto.couvreRestauration ?? true,
+        dateDebutValidite: new Date(dto.dateDebutValidite),
+        dateFinValidite: dto.dateFinValidite ? new Date(dto.dateFinValidite) : null,
+      },
+    });
+  }
+
+  async updateBaremePerDiem(id: string, dto: UpdateBaremePerDiemDto) {
+    const existing = await this.prisma.ndfBaremePerDiem.findUnique({ where: { id } });
+    if (!existing) {
+      throw new NotFoundException('Barème Per Diem introuvable');
+    }
+    return this.prisma.ndfBaremePerDiem.update({
+      where: { id },
+      data: {
+        ...(dto.zoneGeographique !== undefined && { zoneGeographique: dto.zoneGeographique }),
+        ...(dto.categorieProfessionnelleLibelle !== undefined && {
+          categorieProfessionnelleLibelle: dto.categorieProfessionnelleLibelle,
+        }),
+        ...(dto.montantJour !== undefined && { montantJour: dto.montantJour }),
+        ...(dto.deviseCode !== undefined && { deviseCode: dto.deviseCode }),
+        ...(dto.couvreHebergement !== undefined && { couvreHebergement: dto.couvreHebergement }),
+        ...(dto.couvreRestauration !== undefined && { couvreRestauration: dto.couvreRestauration }),
+        ...(dto.dateDebutValidite !== undefined && { dateDebutValidite: new Date(dto.dateDebutValidite) }),
+        ...(dto.dateFinValidite !== undefined && {
+          dateFinValidite: dto.dateFinValidite ? new Date(dto.dateFinValidite) : null,
+        }),
+      },
+    });
+  }
+
+  async deleteBaremePerDiem(id: string) {
+    const existing = await this.prisma.ndfBaremePerDiem.findUnique({ where: { id } });
+    if (!existing) {
+      throw new NotFoundException('Barème Per Diem introuvable');
+    }
+    return this.prisma.ndfBaremePerDiem.update({
+      where: { id },
+      data: { isDeleted: true },
+    });
+  }
+
+  async seedBaremesPerDiemOfficielBenin() {
+    const baremesOfficiels = [
+      {
+        paysCode: 'BJ',
+        zoneGeographique: 'Cotonou & Grand Nokoué (Littoral / Atlantique)',
+        categorieProfessionnelleLibelle: 'TOUTES',
+        montantJour: 35000,
+        deviseCode: 'XOF',
+        couvreHebergement: false,
+        couvreRestauration: true,
+        dateDebutValidite: new Date('2026-01-01T00:00:00Z'),
+      },
+      {
+        paysCode: 'BJ',
+        zoneGeographique: 'Intérieur du Bénin (hors Littoral)',
+        categorieProfessionnelleLibelle: 'TOUTES',
+        montantJour: 25000,
+        deviseCode: 'XOF',
+        couvreHebergement: false,
+        couvreRestauration: true,
+        dateDebutValidite: new Date('2026-01-01T00:00:00Z'),
+      },
+      {
+        paysCode: 'BJ',
+        zoneGeographique: 'Sous-région UEMOA / CEDEAO',
+        categorieProfessionnelleLibelle: 'TOUTES',
+        montantJour: 75000,
+        deviseCode: 'XOF',
+        couvreHebergement: false,
+        couvreRestauration: true,
+        dateDebutValidite: new Date('2026-01-01T00:00:00Z'),
+      },
+      {
+        paysCode: 'BJ',
+        zoneGeographique: 'International (Hors Afrique de l’Ouest)',
+        categorieProfessionnelleLibelle: 'TOUTES',
+        montantJour: 150000,
+        deviseCode: 'XOF',
+        couvreHebergement: false,
+        couvreRestauration: true,
+        dateDebutValidite: new Date('2026-01-01T00:00:00Z'),
+      },
+    ];
+
+    for (const p of baremesOfficiels) {
+      const existing = await this.prisma.ndfBaremePerDiem.findFirst({
+        where: {
+          paysCode: p.paysCode,
+          zoneGeographique: p.zoneGeographique,
+          isDeleted: false,
+        },
+      });
+
+      if (existing) {
+        await this.prisma.ndfBaremePerDiem.update({
+          where: { id: existing.id },
+          data: p,
+        });
+      } else {
+        await this.prisma.ndfBaremePerDiem.create({
+          data: p,
+        });
+      }
+    }
+
+    return this.getBaremesPerDiem('BJ');
   }
 
   async calculerPerDiem(dto: CalculerPerDiemDto) {
     const paysCode = dto.paysCode || 'BJ';
 
-    const bareme = await this.prisma.ndfBaremePerDiem.findFirst({
+    // 1. Recherche directe par ID si c'est un UUID
+    let bareme = await this.prisma.ndfBaremePerDiem.findFirst({
       where: {
-        paysCode,
-        zoneGeographique: {
-          contains: dto.zoneGeographique,
-          mode: 'insensitive',
-        },
+        id: dto.zoneGeographique,
         isDeleted: false,
       },
     });
+
+    // 2. Recherche par zone geographique textuelle
+    if (!bareme) {
+      bareme = await this.prisma.ndfBaremePerDiem.findFirst({
+        where: {
+          paysCode,
+          zoneGeographique: {
+            contains: dto.zoneGeographique,
+            mode: 'insensitive',
+          },
+          isDeleted: false,
+        },
+      });
+    }
+
+    // 3. Fallback sur le premier barème actif
+    if (!bareme) {
+      bareme = await this.prisma.ndfBaremePerDiem.findFirst({
+        where: { paysCode, isDeleted: false },
+        orderBy: { montantJour: 'asc' },
+      });
+    }
 
     if (!bareme) {
       throw new NotFoundException(

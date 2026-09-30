@@ -2,6 +2,7 @@ import {
   IsBoolean,
   IsDateString,
   IsEnum,
+  IsIn,
   IsInt,
   IsNotEmpty,
   IsNumber,
@@ -15,7 +16,7 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export class QualifySourceReglementaireDto {
   @ApiProperty({ enum: ['QUALIFIEE', 'PARAMETRAGE_EN_COURS', 'APPLIQUEE', 'SANS_IMPACT_LOGICIEL'] })
-  @IsEnum(['QUALIFIEE', 'PARAMETRAGE_EN_COURS', 'APPLIQUEE', 'SANS_IMPACT_LOGICIEL'])
+  @IsIn(['QUALIFIEE', 'PARAMETRAGE_EN_COURS', 'APPLIQUEE', 'SANS_IMPACT_LOGICIEL'])
   statutVeille: 'QUALIFIEE' | 'PARAMETRAGE_EN_COURS' | 'APPLIQUEE' | 'SANS_IMPACT_LOGICIEL';
 
   @ApiPropertyOptional()
@@ -31,7 +32,7 @@ export class CreateSourceReglementaireDto {
   paysCode: string;
 
   @ApiProperty({ enum: ['LOI_FINANCES', 'CODE_GENERAL_IMPOTS', 'ARRETE', 'CIRCULAIRE', 'NOTE_ADMINISTRATIVE', 'DECISION_JUSTICE', 'AUTRE'] })
-  @IsEnum(['LOI_FINANCES', 'CODE_GENERAL_IMPOTS', 'ARRETE', 'CIRCULAIRE', 'NOTE_ADMINISTRATIVE', 'DECISION_JUSTICE', 'AUTRE'])
+  @IsIn(['LOI_FINANCES', 'CODE_GENERAL_IMPOTS', 'ARRETE', 'CIRCULAIRE', 'NOTE_ADMINISTRATIVE', 'DECISION_JUSTICE', 'AUTRE'])
   typeSource: 'LOI_FINANCES' | 'CODE_GENERAL_IMPOTS' | 'ARRETE' | 'CIRCULAIRE' | 'NOTE_ADMINISTRATIVE' | 'DECISION_JUSTICE' | 'AUTRE';
 
   @ApiProperty({ example: 'CGI Bénin 2026, Art. 46' })
@@ -97,6 +98,226 @@ export class ValidateTaxBaremeDto {
   @IsOptional()
   @IsBoolean()
   aNecessiteRecalculRetroactif?: boolean;
+}
+
+export class UpdateSourceReglementaireDto {
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  reference?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  titre?: string;
+
+  @ApiPropertyOptional({ enum: ['LOI_FINANCES', 'CODE_GENERAL_IMPOTS', 'ARRETE', 'CIRCULAIRE', 'NOTE_ADMINISTRATIVE', 'DECISION_JUSTICE', 'AUTRE'] })
+  @IsOptional()
+  @IsIn(['LOI_FINANCES', 'CODE_GENERAL_IMPOTS', 'ARRETE', 'CIRCULAIRE', 'NOTE_ADMINISTRATIVE', 'DECISION_JUSTICE', 'AUTRE'])
+  typeSource?: 'LOI_FINANCES' | 'CODE_GENERAL_IMPOTS' | 'ARRETE' | 'CIRCULAIRE' | 'NOTE_ADMINISTRATIVE' | 'DECISION_JUSTICE' | 'AUTRE';
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsDateString()
+  datePublication?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsDateString()
+  dateEntreeVigueur?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  resume?: string;
+
+  @ApiPropertyOptional({ enum: ['A_QUALIFIER', 'QUALIFIEE', 'PARAMETRAGE_EN_COURS', 'APPLIQUEE', 'SANS_IMPACT_LOGICIEL'] })
+  @IsOptional()
+  @IsIn(['A_QUALIFIER', 'QUALIFIEE', 'PARAMETRAGE_EN_COURS', 'APPLIQUEE', 'SANS_IMPACT_LOGICIEL'])
+  statutVeille?: 'A_QUALIFIER' | 'QUALIFIEE' | 'PARAMETRAGE_EN_COURS' | 'APPLIQUEE' | 'SANS_IMPACT_LOGICIEL';
+}
+
+export class UpdateTaxBaremeDto {
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  libelle?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  secteurActivite?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsNumber()
+  tauxDefaut?: number;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsDateString()
+  dateDebutValidite?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsDateString()
+  dateFinValidite?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsUUID()
+  sourceReglementaireId?: string;
+
+  @ApiPropertyOptional({ enum: ['BROUILLON', 'VALIDE', 'ACTIF', 'REMPLACE'] })
+  @IsOptional()
+  @IsIn(['BROUILLON', 'VALIDE', 'ACTIF', 'REMPLACE'])
+  statut?: 'BROUILLON' | 'VALIDE' | 'ACTIF' | 'REMPLACE';
+}
+
+export class CreateTaxParametrePaysDto {
+  @ApiProperty({ example: 'BJ' })
+  @IsString()
+  @IsNotEmpty()
+  paysCode: string;
+
+  @ApiProperty({ example: 'SEUIL_CA_TVA_NORMAL' })
+  @IsString()
+  @IsNotEmpty()
+  codeParametre: string;
+
+  @ApiProperty({ example: 'Seuil de chiffre d\'affaires pour assujettissement obligatoire à la TVA' })
+  @IsString()
+  @IsNotEmpty()
+  libelle: string;
+
+  @ApiPropertyOptional({ enum: ['NUMERIQUE', 'TEXTE', 'BOOLEEN', 'POURCENTAGE'], default: 'NUMERIQUE' })
+  @IsOptional()
+  @IsIn(['NUMERIQUE', 'TEXTE', 'BOOLEEN', 'POURCENTAGE'])
+  typeValeur?: 'NUMERIQUE' | 'TEXTE' | 'BOOLEEN' | 'POURCENTAGE';
+
+  @ApiProperty({ example: '50000000' })
+  @IsString()
+  @IsNotEmpty()
+  valeur: string;
+
+  @ApiPropertyOptional({ example: 'FCFA' })
+  @IsOptional()
+  @IsString()
+  unite?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsUUID()
+  sourceReglementaireId?: string;
+
+  @ApiProperty({ example: '2026-01-01' })
+  @IsDateString()
+  dateDebutValidite: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsDateString()
+  dateFinValidite?: string;
+}
+
+export class UpdateTaxParametrePaysDto {
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  libelle?: string;
+
+  @ApiPropertyOptional({ enum: ['NUMERIQUE', 'TEXTE', 'BOOLEEN', 'POURCENTAGE'] })
+  @IsOptional()
+  @IsIn(['NUMERIQUE', 'TEXTE', 'BOOLEEN', 'POURCENTAGE'])
+  typeValeur?: 'NUMERIQUE' | 'TEXTE' | 'BOOLEEN' | 'POURCENTAGE';
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  valeur?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  unite?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsUUID()
+  sourceReglementaireId?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsDateString()
+  dateDebutValidite?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsDateString()
+  dateFinValidite?: string;
+}
+
+export class CreateTaxRegimeDto {
+  @ApiProperty({ example: 'BJ' })
+  @IsString()
+  @IsNotEmpty()
+  paysCode: string;
+
+  @ApiProperty({ example: 'RSI' })
+  @IsString()
+  @IsNotEmpty()
+  code: string;
+
+  @ApiProperty({ example: 'Régime Simplifié d\'Imposition' })
+  @IsString()
+  @IsNotEmpty()
+  libelle: string;
+
+  @ApiPropertyOptional({ example: 50000000 })
+  @IsOptional()
+  @IsNumber()
+  seuilChiffreAffairesMax?: number;
+
+  @ApiPropertyOptional({ enum: ['COMPTABILITE_COMPLETE', 'COMPTABILITE_SIMPLIFIEE', 'DECLARATION_FORFAITAIRE'], default: 'COMPTABILITE_SIMPLIFIEE' })
+  @IsOptional()
+  @IsIn(['COMPTABILITE_COMPLETE', 'COMPTABILITE_SIMPLIFIEE', 'DECLARATION_FORFAITAIRE'])
+  obligationComptable?: 'COMPTABILITE_COMPLETE' | 'COMPTABILITE_SIMPLIFIEE' | 'DECLARATION_FORFAITAIRE';
+
+  @ApiProperty({ example: '2026-01-01' })
+  @IsDateString()
+  dateDebutValidite: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsDateString()
+  dateFinValidite?: string;
+}
+
+export class UpdateTaxRegimeDto {
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  libelle?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsNumber()
+  seuilChiffreAffairesMax?: number;
+
+  @ApiPropertyOptional({ enum: ['COMPTABILITE_COMPLETE', 'COMPTABILITE_SIMPLIFIEE', 'DECLARATION_FORFAITAIRE'] })
+  @IsOptional()
+  @IsIn(['COMPTABILITE_COMPLETE', 'COMPTABILITE_SIMPLIFIEE', 'DECLARATION_FORFAITAIRE'])
+  obligationComptable?: 'COMPTABILITE_COMPLETE' | 'COMPTABILITE_SIMPLIFIEE' | 'DECLARATION_FORFAITAIRE';
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsDateString()
+  dateDebutValidite?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsDateString()
+  dateFinValidite?: string;
 }
 
 export class CreateContribuableDto {
@@ -201,7 +422,7 @@ export class CreateDeclarationTvaDto {
 
 export class CreateLigneTvaDto {
   @ApiProperty({ enum: ['VENTE_TAXABLE', 'VENTE_EXONEREE', 'ACHAT_DEDUCTIBLE', 'IMPORTATION', 'NOTE_FRAIS_DEDUCTIBLE'] })
-  @IsEnum(['VENTE_TAXABLE', 'VENTE_EXONEREE', 'ACHAT_DEDUCTIBLE', 'IMPORTATION', 'NOTE_FRAIS_DEDUCTIBLE'])
+  @IsIn(['VENTE_TAXABLE', 'VENTE_EXONEREE', 'ACHAT_DEDUCTIBLE', 'IMPORTATION', 'NOTE_FRAIS_DEDUCTIBLE'])
   nature: 'VENTE_TAXABLE' | 'VENTE_EXONEREE' | 'ACHAT_DEDUCTIBLE' | 'IMPORTATION' | 'NOTE_FRAIS_DEDUCTIBLE';
 
   @ApiProperty({ example: 18.0 })
@@ -219,7 +440,7 @@ export class CreateLigneTvaDto {
 
 export class SimulerCalculAibDto {
   @ApiProperty({ enum: ['IMPORTATION', 'ACHAT_COMMERCIAL_IFU', 'PRESTATION_SERVICE_IFU', 'ACHAT_NON_IMMATRICULE'] })
-  @IsEnum(['IMPORTATION', 'ACHAT_COMMERCIAL_IFU', 'PRESTATION_SERVICE_IFU', 'ACHAT_NON_IMMATRICULE'])
+  @IsIn(['IMPORTATION', 'ACHAT_COMMERCIAL_IFU', 'PRESTATION_SERVICE_IFU', 'ACHAT_NON_IMMATRICULE'])
   natureOperation: 'IMPORTATION' | 'ACHAT_COMMERCIAL_IFU' | 'PRESTATION_SERVICE_IFU' | 'ACHAT_NON_IMMATRICULE';
 
   @ApiProperty({ example: 5000000 })
@@ -252,7 +473,7 @@ export class SimulerCalculIsDto {
 
 export class CreateRetraitementDto {
   @ApiProperty({ enum: ['REINTEGRATION', 'DEDUCTION'] })
-  @IsEnum(['REINTEGRATION', 'DEDUCTION'])
+  @IsIn(['REINTEGRATION', 'DEDUCTION'])
   sens: 'REINTEGRATION' | 'DEDUCTION';
 
   @ApiProperty({ example: 'Amortissement excédentaire véhicule de tourisme' })
@@ -296,12 +517,12 @@ export class ExportFecDto {
 
   @ApiPropertyOptional({ enum: ['TABULATION', 'POINT_VIRGULE'], default: 'TABULATION' })
   @IsOptional()
-  @IsEnum(['TABULATION', 'POINT_VIRGULE'])
+  @IsIn(['TABULATION', 'POINT_VIRGULE'])
   separateur?: 'TABULATION' | 'POINT_VIRGULE';
 
   @ApiPropertyOptional({ enum: ['CSV', 'TXT'], default: 'TXT' })
   @IsOptional()
-  @IsEnum(['CSV', 'TXT'])
+  @IsIn(['CSV', 'TXT'])
   formatFichier?: 'CSV' | 'TXT';
 }
 
@@ -311,7 +532,7 @@ export class CreerControleFiscalDto {
   taxContribuableId: string;
 
   @ApiProperty({ enum: ['SUR_PIECES', 'SUR_PLACE', 'PONCTUEL'] })
-  @IsEnum(['SUR_PIECES', 'SUR_PLACE', 'PONCTUEL'])
+  @IsIn(['SUR_PIECES', 'SUR_PLACE', 'PONCTUEL'])
   typeControle: 'SUR_PIECES' | 'SUR_PLACE' | 'PONCTUEL';
 
   @ApiPropertyOptional({ example: '2026-02-15' })
@@ -369,7 +590,7 @@ export class IntroduireRecoursDto {
   redressementId?: string;
 
   @ApiProperty({ enum: ['RECLAMATION_PREALABLE', 'RECOURS_HIERARCHIQUE', 'RECOURS_JURIDICTIONNEL', 'DEMANDE_GRACIEUSE'] })
-  @IsEnum(['RECLAMATION_PREALABLE', 'RECOURS_HIERARCHIQUE', 'RECOURS_JURIDICTIONNEL', 'DEMANDE_GRACIEUSE'])
+  @IsIn(['RECLAMATION_PREALABLE', 'RECOURS_HIERARCHIQUE', 'RECOURS_JURIDICTIONNEL', 'DEMANDE_GRACIEUSE'])
   typeRecours: 'RECLAMATION_PREALABLE' | 'RECOURS_HIERARCHIQUE' | 'RECOURS_JURIDICTIONNEL' | 'DEMANDE_GRACIEUSE';
 
   @ApiProperty({ example: '2026-04-15' })
@@ -383,7 +604,7 @@ export class IntroduireRecoursDto {
 
 export class EstimerPenaliteDto {
   @ApiProperty({ enum: ['RETARD_DECLARATION', 'INSUFFISANCE_DECLARATION', 'RETARD_PAIEMENT', 'INTERET_RETARD'] })
-  @IsEnum(['RETARD_DECLARATION', 'INSUFFISANCE_DECLARATION', 'RETARD_PAIEMENT', 'INTERET_RETARD'])
+  @IsIn(['RETARD_DECLARATION', 'INSUFFISANCE_DECLARATION', 'RETARD_PAIEMENT', 'INTERET_RETARD'])
   typePenalite: 'RETARD_DECLARATION' | 'INSUFFISANCE_DECLARATION' | 'RETARD_PAIEMENT' | 'INTERET_RETARD';
 
   @ApiProperty({ example: 5000000 })

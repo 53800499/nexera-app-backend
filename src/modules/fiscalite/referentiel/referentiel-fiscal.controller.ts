@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Param,
   Post,
@@ -22,7 +23,13 @@ import { ReferentielFiscalService } from './referentiel-fiscal.service';
 import {
   CreateSourceReglementaireDto,
   CreateTaxBaremeDto,
+  CreateTaxParametrePaysDto,
+  CreateTaxRegimeDto,
   QualifySourceReglementaireDto,
+  UpdateSourceReglementaireDto,
+  UpdateTaxBaremeDto,
+  UpdateTaxParametrePaysDto,
+  UpdateTaxRegimeDto,
   ValidateTaxBaremeDto,
 } from '../dto/fiscalite.dto';
 
@@ -48,6 +55,8 @@ export class ReferentielFiscalController {
     return this.referentielService.getTypes(paysCode);
   }
 
+  // ---------------- BARÈMES ----------------
+
   @Get('baremes')
   @Permissions('fiscalite.read')
   @ApiOperation({ summary: 'Consulter les barèmes fiscaux versionnés' })
@@ -67,6 +76,30 @@ export class ReferentielFiscalController {
     return this.referentielService.createBareme(dto, req.user?.id || req.user?.userId);
   }
 
+  @Put('baremes/:id')
+  @Permissions('fiscalite.write')
+  @ApiOperation({ summary: 'Modifier un barème fiscal' })
+  async updateBareme(@Param('id') id: string, @Body() dto: UpdateTaxBaremeDto) {
+    return this.referentielService.updateBareme(id, dto);
+  }
+
+  @Post('baremes/:id/dupliquer')
+  @Permissions('fiscalite.write')
+  @ApiOperation({ summary: 'Dupliquer un barème fiscal' })
+  async duplicateBareme(
+    @Param('id') id: string,
+    @Body('dateDebutValidite') dateDebutValidite?: string,
+  ) {
+    return this.referentielService.duplicateBareme(id, dateDebutValidite);
+  }
+
+  @Delete('baremes/:id')
+  @Permissions('fiscalite.write')
+  @ApiOperation({ summary: 'Supprimer un barème fiscal' })
+  async deleteBareme(@Param('id') id: string) {
+    return this.referentielService.deleteBareme(id);
+  }
+
   @Put('baremes/:id/valider')
   @Permissions('fiscalite.baremes.validate')
   @ApiOperation({ summary: 'Valider et activer un barème (Double contrôle EF-008)' })
@@ -77,6 +110,8 @@ export class ReferentielFiscalController {
   ) {
     return this.referentielService.validerBareme(id, req.user?.id || req.user?.userId, dto);
   }
+
+  // ---------------- SOURCES & VEILLE ----------------
 
   @Get('sources')
   @Permissions('fiscalite.read')
@@ -97,6 +132,23 @@ export class ReferentielFiscalController {
     return this.referentielService.createSource(dto, req.user?.id || req.user?.userId);
   }
 
+  @Put('sources/:id')
+  @Permissions('fiscalite.write')
+  @ApiOperation({ summary: 'Modifier une source réglementaire' })
+  async updateSource(
+    @Param('id') id: string,
+    @Body() dto: UpdateSourceReglementaireDto,
+  ) {
+    return this.referentielService.updateSource(id, dto);
+  }
+
+  @Delete('sources/:id')
+  @Permissions('fiscalite.write')
+  @ApiOperation({ summary: 'Supprimer une source réglementaire' })
+  async deleteSource(@Param('id') id: string) {
+    return this.referentielService.deleteSource(id);
+  }
+
   @Put('sources/:id/qualifier')
   @Permissions('fiscalite.write')
   @ApiOperation({ summary: 'Qualifier l’impact logiciel d’une source réglementaire' })
@@ -107,6 +159,8 @@ export class ReferentielFiscalController {
     return this.referentielService.qualifierSource(id, dto);
   }
 
+  // ---------------- PARAMÈTRES PAYS ----------------
+
   @Get('parametres')
   @Permissions('fiscalite.read')
   @ApiOperation({ summary: 'Lister les paramètres pays (taux de pénalités, plancher IS, seuils)' })
@@ -115,11 +169,58 @@ export class ReferentielFiscalController {
     return this.referentielService.getParametresPays(paysCode);
   }
 
+  @Post('parametres')
+  @Permissions('fiscalite.write')
+  @ApiOperation({ summary: 'Créer un nouveau paramètre fiscal pays' })
+  async createParametre(@Body() dto: CreateTaxParametrePaysDto) {
+    return this.referentielService.createParametrePays(dto);
+  }
+
+  @Put('parametres/:id')
+  @Permissions('fiscalite.write')
+  @ApiOperation({ summary: 'Modifier un paramètre fiscal pays' })
+  async updateParametre(
+    @Param('id') id: string,
+    @Body() dto: UpdateTaxParametrePaysDto,
+  ) {
+    return this.referentielService.updateParametrePays(id, dto);
+  }
+
+  @Delete('parametres/:id')
+  @Permissions('fiscalite.write')
+  @ApiOperation({ summary: 'Supprimer un paramètre fiscal pays' })
+  async deleteParametre(@Param('id') id: string) {
+    return this.referentielService.deleteParametrePays(id);
+  }
+
+  // ---------------- RÉGIMES D'IMPOSITION ----------------
+
   @Get('regimes')
   @Permissions('fiscalite.read')
   @ApiOperation({ summary: 'Lister les régimes d’imposition d’un pays' })
   @ApiQuery({ name: 'paysCode', required: false, example: 'BJ' })
   async getRegimes(@Query('paysCode') paysCode?: string) {
     return this.referentielService.getRegimes(paysCode);
+  }
+
+  @Post('regimes')
+  @Permissions('fiscalite.write')
+  @ApiOperation({ summary: 'Créer un nouveau régime d’imposition' })
+  async createRegime(@Body() dto: CreateTaxRegimeDto) {
+    return this.referentielService.createRegime(dto);
+  }
+
+  @Put('regimes/:id')
+  @Permissions('fiscalite.write')
+  @ApiOperation({ summary: 'Modifier un régime d’imposition' })
+  async updateRegime(@Param('id') id: string, @Body() dto: UpdateTaxRegimeDto) {
+    return this.referentielService.updateRegime(id, dto);
+  }
+
+  @Delete('regimes/:id')
+  @Permissions('fiscalite.write')
+  @ApiOperation({ summary: 'Supprimer un régime d’imposition' })
+  async deleteRegime(@Param('id') id: string) {
+    return this.referentielService.deleteRegime(id);
   }
 }

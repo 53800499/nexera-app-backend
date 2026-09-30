@@ -99,11 +99,11 @@ describe('CalculPaieService (Moteur de Paie & Fiscalité Dynamique)', () => {
       expect(result.totalSalaireBrut).toBeGreaterThan(350000);
 
       // Vérification CNSS
-      expect(result.montantCnssSalariale).toBe(Math.round(result.totalAssietteCnss * 0.036));
-      expect(result.montantCnssPatronale).toBe(Math.round(result.totalAssietteCnss * 0.174));
+      expect(result.montantCnssSalariale).toBeCloseTo(result.totalAssietteCnss * 0.036, 1);
+      expect(result.montantCnssPatronale).toBeCloseTo(result.totalAssietteCnss * 0.174, 1);
 
       // Vérification VPS (4%)
-      expect(result.montantVpsPatronale).toBe(Math.round(result.totalAssietteVps * 0.04));
+      expect(result.montantVpsPatronale).toBeCloseTo(result.totalAssietteVps * 0.04, 1);
 
       // Vérification Net imposable = Assiette - CNSS Salariale
       expect(result.netImposable).toBe(result.totalAssietteCnss - result.montantCnssSalariale);

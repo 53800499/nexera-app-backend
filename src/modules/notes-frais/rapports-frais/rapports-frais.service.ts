@@ -2,8 +2,10 @@ import {
   BadRequestException,
   Injectable,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
 import { PrismaService } from '../../../infrastructure/database/prisma.service';
+import { IntegrationEventBus } from '../../../shared/events/integration-event.bus';
 import { AnomaliesEngineService } from '../intelligence-artificielle/anomalies-engine.service';
 import {
   CreateRapportFraisDto,
@@ -17,6 +19,7 @@ export class RapportsFraisService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly anomaliesEngine: AnomaliesEngineService,
+    @Optional() private readonly integrationBus?: IntegrationEventBus,
   ) {}
 
   async getRapports(
@@ -365,6 +368,34 @@ export class RapportsFraisService {
         montant: montantNetRembourser,
       },
     });
+
+    // Convergence M7 Fiscalité : émission de l'événement sur le bus
+    try {
+      if (this.integrationBus) {
+        await this.integrationBus.publish({
+          eventName: 'expense_report.approved',
+          tenantId,
+          occurredAt: new Date(),
+          payload: {
+            rapportFraisId: id,
+            numeroRapport: rapport.numeroRapport,
+            employeId: rapport.employeRefId,
+            montantTotal: rapport.montantTotal,
+            depenses: (rapport.depenses || []).map((dep: any) => ({
+              id: dep.id,
+              montantTtc: dep.montantDeviseReference,
+              montantTva: dep.montantTva || 0,
+              montantHt: dep.montantDeviseReference - (dep.montantTva || 0),
+              dateDepense: dep.dateDepense,
+              fournisseurLibelle: dep.fournisseurLibelle,
+              categorieLibelle: dep.categorieDepense?.libelle,
+            })),
+          },
+        });
+      }
+    } catch (busErr) {
+      console.error('Erreur publication événement expense_report.approved vers M7 Fiscalité :', busErr);
+    }
 
     return this.getRapportById(tenantId, id);
   }

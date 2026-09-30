@@ -31,7 +31,7 @@ export class AutresTaxesService {
   }
 
   async getDeclarationsGeneriques(taxContribuableId: string, taxTypeCode?: string) {
-    return (this.prisma as any).taxDeclarationGenerique.findMany({
+    const list = await (this.prisma as any).taxDeclarationGenerique.findMany({
       where: {
         taxContribuableId,
         ...(taxTypeCode ? { taxType: { code: taxTypeCode } } : {}),
@@ -42,6 +42,19 @@ export class AutresTaxesService {
         lignes: true,
       },
       orderBy: { createdAt: 'desc' },
+    });
+
+    const now = new Date();
+    return list.map((d: any) => {
+      if (
+        d.statut !== 'PAYEE' &&
+        d.statut !== 'DECLAREE' &&
+        d.dateLimiteLegale &&
+        new Date(d.dateLimiteLegale) < now
+      ) {
+        return { ...d, statut: 'EN_RETARD' };
+      }
+      return d;
     });
   }
 
@@ -82,4 +95,45 @@ export class AutresTaxesService {
       },
     });
   }
+
+  async validerDeclaration(id: string) {
+    return (this.prisma as any).taxDeclarationGenerique.update({
+      where: { id },
+      data: { statut: 'VALIDEE' },
+      include: {
+        taxType: true,
+        lignes: true,
+      },
+    });
+  }
+
+  async declarerDeclaration(id: string) {
+    return (this.prisma as any).taxDeclarationGenerique.update({
+      where: { id },
+      data: { statut: 'DECLAREE' },
+      include: {
+        taxType: true,
+        lignes: true,
+      },
+    });
+  }
+
+  async marquerPayee(id: string) {
+    return (this.prisma as any).taxDeclarationGenerique.update({
+      where: { id },
+      data: { statut: 'PAYEE' },
+      include: {
+        taxType: true,
+        lignes: true,
+      },
+    });
+  }
+
+  async supprimerDeclaration(id: string) {
+    await (this.prisma as any).taxDeclarationGenerique.delete({
+      where: { id },
+    });
+    return { success: true, message: 'Déclaration générique supprimée avec succès.' };
+  }
 }
+

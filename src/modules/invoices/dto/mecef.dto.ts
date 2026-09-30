@@ -109,7 +109,7 @@ export class MecefDetailsResponseDto {
 
 export class UpdateMecefConfigDto {
   @ApiPropertyOptional({
-    example: 'https://ebf.impots.bj/api',
+    example: 'https://sygmef.impots.bj/emcf/api',
     description: "URL de base de l'API e-MECeF DGI",
   })
   @IsString()
@@ -148,10 +148,18 @@ export class UpdateMecefConfigDto {
   @IsBoolean()
   @IsOptional()
   mecefAutoNormalize?: boolean;
+
+  @ApiPropertyOptional({
+    example: '3201912345678',
+    description: "Identifiant Fiscal Unique (IFU) à 13 chiffres de l'entreprise émettrice",
+  })
+  @IsString()
+  @IsOptional()
+  emitterIfu?: string;
 }
 
 export class MecefConfigResponseDto {
-  @ApiPropertyOptional({ example: 'https://ebf.impots.bj/api' })
+  @ApiPropertyOptional({ example: 'https://sygmef.impots.bj/emcf/api' })
   mecefApiUrl?: string | null;
 
   @ApiPropertyOptional({
@@ -162,6 +170,12 @@ export class MecefConfigResponseDto {
 
   @ApiPropertyOptional({ example: 'TEST01000001' })
   mecefNim?: string | null;
+
+  @ApiPropertyOptional({
+    example: '3201912345678',
+    description: "Identifiant Fiscal Unique (IFU) de l'entreprise émettrice",
+  })
+  emitterIfu?: string | null;
 
   @ApiProperty({
     enum: MecefEnvironment,

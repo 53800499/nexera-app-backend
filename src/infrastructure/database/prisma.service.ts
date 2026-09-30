@@ -1,12 +1,15 @@
 import { Injectable, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 import { PrismaPg } from '@prisma/adapter-pg';
+import { Pool } from 'pg';
 
 @Injectable()
 export class PrismaService
   extends PrismaClient
   implements OnModuleInit, OnModuleDestroy
 {
+  private readonly pool: Pool;
+
   constructor() {
     const connectionString = process.env.DATABASE_URL;
 
@@ -14,9 +17,18 @@ export class PrismaService
       throw new Error('DATABASE_URL must be set before Prisma can initialize.');
     }
 
-    super({
-      adapter: new PrismaPg({ connectionString }),
+    const pool = new Pool({
+      connectionString,
+      max: 20,
+      idleTimeoutMillis: 30000,
+      connectionTimeoutMillis: 10000,
     });
+
+    super({
+      adapter: new PrismaPg(pool),
+    });
+
+    this.pool = pool;
   }
 
   async onModuleInit() {
@@ -25,6 +37,7 @@ export class PrismaService
 
   async onModuleDestroy() {
     await this.$disconnect();
+    await this.pool.end();
   }
 
   // Helper methods for multi-tenant operations

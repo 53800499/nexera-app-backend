@@ -223,6 +223,78 @@ export async function seedRhData(prisma: PrismaClient) {
     }
   }
 
+  // 5.b Avantages en Nature (CGI Bénin 2026 Art. 123)
+  const avantagesNature = [
+    {
+      type: 'LOGEMENT' as const,
+      taux: 15,
+      montant: null,
+      desc: 'Logement de fonction : 15 % du salaire de base pour cadres et employés',
+      conditions: { categorie: 'TOUS', assiette: 'SALAIRE_BASE', tauxPourcentage: 15 },
+    },
+    {
+      type: 'DOMESTIQUE' as const,
+      taux: 15,
+      montant: null,
+      desc: 'Domesticité : 15 % du salaire de base (sous condition de déclaration CNSS)',
+      conditions: { conditionCnss: true, tauxPourcentage: 15 },
+    },
+    {
+      type: 'EAU_ELECTRICITE' as const,
+      taux: null,
+      montant: 50000,
+      desc: 'Électricité : 50 000 FCFA (Cadres supérieurs) / 20 000 FCFA (Employés)',
+      conditions: { cadres: 50000, employes: 20000, personnelMaison: 10000 },
+    },
+    {
+      type: 'EAU_ELECTRICITE' as const,
+      taux: null,
+      montant: 10000,
+      desc: 'Eau : 10 000 FCFA (Cadres supérieurs) / 5 000 FCFA (Employés)',
+      conditions: { cadres: 10000, employes: 5000, personnelMaison: 2500 },
+    },
+    {
+      type: 'TELEPHONE' as const,
+      taux: null,
+      montant: 15000,
+      desc: 'Téléphone : 15 000 FCFA (Cadres) / 5 000 FCFA (Employés)',
+      conditions: { cadres: 15000, employes: 5000 },
+    },
+    {
+      type: 'NOURRITURE' as const,
+      taux: null,
+      montant: 50000,
+      desc: 'Nourriture : 50 000 FCFA (Cadres) / 30 000 FCFA (Employés)',
+      conditions: { cadres: 50000, employes: 30000 },
+    },
+    {
+      type: 'VEHICULE' as const,
+      taux: null,
+      montant: 30000,
+      desc: 'Véhicule 4 roues : 30 000 FCFA (Cadres) / 15 000 FCFA (Employés) ; 2 roues : 10 000 / 5 000 FCFA',
+      conditions: { vehicule4RouesCadre: 30000, vehicule4RouesEmploye: 15000, vehicule2RouesCadre: 10000, vehicule2RouesEmploye: 5000 },
+    },
+  ];
+
+  for (const av of avantagesNature) {
+    const existing = await prisma.rhBaremeAvantageNature.findFirst({
+      where: { paysCode: 'BJ', typeAvantage: av.type, description: av.desc },
+    });
+    if (!existing) {
+      await prisma.rhBaremeAvantageNature.create({
+        data: {
+          paysCode: 'BJ',
+          typeAvantage: av.type,
+          tauxPourcentage: av.taux,
+          montantFixe: av.montant,
+          description: av.desc,
+          conditionsJson: av.conditions,
+          dateDebutValidite: new Date('2026-01-01T00:00:00Z'),
+        },
+      });
+    }
+  }
+
   // 6. Jours Fériés 2026 (Bénin)
   const joursFeries2026 = [
     { date: '2026-01-01', libelle: "Jour de l'An" },

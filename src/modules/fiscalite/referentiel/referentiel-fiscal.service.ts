@@ -8,7 +8,13 @@ import { PrismaService } from '../../../infrastructure/database/prisma.service';
 import {
   CreateSourceReglementaireDto,
   CreateTaxBaremeDto,
+  CreateTaxParametrePaysDto,
+  CreateTaxRegimeDto,
   QualifySourceReglementaireDto,
+  UpdateSourceReglementaireDto,
+  UpdateTaxBaremeDto,
+  UpdateTaxParametrePaysDto,
+  UpdateTaxRegimeDto,
   ValidateTaxBaremeDto,
 } from '../dto/fiscalite.dto';
 
@@ -87,6 +93,99 @@ export class ReferentielFiscalService {
         statut: 'BROUILLON',
       },
     });
+  }
+
+  async updateBareme(id: string, dto: UpdateTaxBaremeDto) {
+    const bareme = await (this.prisma as any).taxBareme.findUnique({
+      where: { id },
+    });
+    if (!bareme) {
+      throw new NotFoundException('Barème introuvable.');
+    }
+
+    return (this.prisma as any).taxBareme.update({
+      where: { id },
+      data: {
+        ...(dto.libelle ? { libelle: dto.libelle } : {}),
+        ...(dto.secteurActivite !== undefined ? { secteurActivite: dto.secteurActivite } : {}),
+        ...(dto.tauxDefaut !== undefined ? { tauxDefaut: dto.tauxDefaut } : {}),
+        ...(dto.dateDebutValidite ? { dateDebutValidite: new Date(dto.dateDebutValidite) } : {}),
+        ...(dto.dateFinValidite !== undefined
+          ? { dateFinValidite: dto.dateFinValidite ? new Date(dto.dateFinValidite) : null }
+          : {}),
+        ...(dto.sourceReglementaireId ? { sourceReglementaireId: dto.sourceReglementaireId } : {}),
+        ...(dto.statut ? { statut: dto.statut } : {}),
+      },
+      include: {
+        taxType: true,
+        sourceReglementaire: true,
+        tranches: { orderBy: { ordre: 'asc' } },
+      },
+    });
+  }
+
+  async duplicateBareme(id: string, newDateDebut?: string) {
+    const existing = await (this.prisma as any).taxBareme.findUnique({
+      where: { id },
+      include: { tranches: true },
+    });
+    if (!existing) {
+      throw new NotFoundException('Barème introuvable.');
+    }
+
+    const created = await (this.prisma as any).taxBareme.create({
+      data: {
+        taxTypeId: existing.taxTypeId,
+        sourceReglementaireId: existing.sourceReglementaireId,
+        libelle: `${existing.libelle} (Copie)`,
+        secteurActivite: existing.secteurActivite,
+        tauxDefaut: existing.tauxDefaut,
+        dateDebutValidite: newDateDebut ? new Date(newDateDebut) : new Date(),
+        dateFinValidite: existing.dateFinValidite,
+        statut: 'BROUILLON',
+      },
+    });
+
+    if (existing.tranches && existing.tranches.length > 0) {
+      for (const t of existing.tranches) {
+        await (this.prisma as any).taxBaremeTranche.create({
+          data: {
+            taxBaremeId: created.id,
+            ordre: t.ordre,
+            critereSecondaire: t.critereSecondaire,
+            borneMin: t.borneMin,
+            borneMax: t.borneMax,
+            taux: t.taux,
+            montantFixe: t.montantFixe,
+          },
+        });
+      }
+    }
+
+    return (this.prisma as any).taxBareme.findUnique({
+      where: { id: created.id },
+      include: {
+        taxType: true,
+        sourceReglementaire: true,
+        tranches: { orderBy: { ordre: 'asc' } },
+      },
+    });
+  }
+
+  async deleteBareme(id: string) {
+    const bareme = await (this.prisma as any).taxBareme.findUnique({
+      where: { id },
+    });
+    if (!bareme) {
+      throw new NotFoundException('Barème introuvable.');
+    }
+
+    await (this.prisma as any).taxBareme.update({
+      where: { id },
+      data: { isDeleted: true },
+    });
+
+    return { success: true, message: 'Barème supprimé avec succès.' };
   }
 
   /**
@@ -172,6 +271,44 @@ export class ReferentielFiscalService {
     });
   }
 
+  async updateSource(id: string, dto: UpdateSourceReglementaireDto) {
+    const source = await (this.prisma as any).taxSourceReglementaire.findUnique({
+      where: { id },
+    });
+    if (!source) {
+      throw new NotFoundException('Source réglementaire introuvable.');
+    }
+
+    return (this.prisma as any).taxSourceReglementaire.update({
+      where: { id },
+      data: {
+        ...(dto.reference ? { reference: dto.reference } : {}),
+        ...(dto.titre ? { titre: dto.titre } : {}),
+        ...(dto.typeSource ? { typeSource: dto.typeSource } : {}),
+        ...(dto.datePublication ? { datePublication: new Date(dto.datePublication) } : {}),
+        ...(dto.dateEntreeVigueur ? { dateEntreeVigueur: new Date(dto.dateEntreeVigueur) } : {}),
+        ...(dto.resume !== undefined ? { resume: dto.resume } : {}),
+        ...(dto.statutVeille ? { statutVeille: dto.statutVeille } : {}),
+      },
+    });
+  }
+
+  async deleteSource(id: string) {
+    const source = await (this.prisma as any).taxSourceReglementaire.findUnique({
+      where: { id },
+    });
+    if (!source) {
+      throw new NotFoundException('Source introuvable.');
+    }
+
+    await (this.prisma as any).taxSourceReglementaire.update({
+      where: { id },
+      data: { isDeleted: true },
+    });
+
+    return { success: true, message: 'Source supprimée avec succès.' };
+  }
+
   async qualifierSource(sourceId: string, dto: QualifySourceReglementaireDto) {
     const source = await (this.prisma as any).taxSourceReglementaire.findUnique({
       where: { id: sourceId },
@@ -201,10 +338,123 @@ export class ReferentielFiscalService {
     });
   }
 
+  async createParametrePays(dto: CreateTaxParametrePaysDto) {
+    return (this.prisma as any).taxParametrePays.create({
+      data: {
+        paysCode: dto.paysCode,
+        codeParametre: dto.codeParametre,
+        libelle: dto.libelle,
+        typeValeur: dto.typeValeur || 'NUMERIQUE',
+        valeur: dto.valeur,
+        unite: dto.unite,
+        sourceReglementaireId: dto.sourceReglementaireId,
+        dateDebutValidite: new Date(dto.dateDebutValidite),
+        dateFinValidite: dto.dateFinValidite ? new Date(dto.dateFinValidite) : null,
+      },
+      include: { sourceReglementaire: true },
+    });
+  }
+
+  async updateParametrePays(id: string, dto: UpdateTaxParametrePaysDto) {
+    const param = await (this.prisma as any).taxParametrePays.findUnique({
+      where: { id },
+    });
+    if (!param) {
+      throw new NotFoundException('Paramètre introuvable.');
+    }
+
+    return (this.prisma as any).taxParametrePays.update({
+      where: { id },
+      data: {
+        ...(dto.libelle ? { libelle: dto.libelle } : {}),
+        ...(dto.typeValeur ? { typeValeur: dto.typeValeur } : {}),
+        ...(dto.valeur !== undefined ? { valeur: dto.valeur } : {}),
+        ...(dto.unite !== undefined ? { unite: dto.unite } : {}),
+        ...(dto.sourceReglementaireId !== undefined ? { sourceReglementaireId: dto.sourceReglementaireId } : {}),
+        ...(dto.dateDebutValidite ? { dateDebutValidite: new Date(dto.dateDebutValidite) } : {}),
+        ...(dto.dateFinValidite !== undefined
+          ? { dateFinValidite: dto.dateFinValidite ? new Date(dto.dateFinValidite) : null }
+          : {}),
+      },
+      include: { sourceReglementaire: true },
+    });
+  }
+
+  async deleteParametrePays(id: string) {
+    const param = await (this.prisma as any).taxParametrePays.findUnique({
+      where: { id },
+    });
+    if (!param) {
+      throw new NotFoundException('Paramètre introuvable.');
+    }
+
+    await (this.prisma as any).taxParametrePays.delete({
+      where: { id },
+    });
+
+    return { success: true, message: 'Paramètre supprimé avec succès.' };
+  }
+
+  // ----------------------------------------------------
+  // RÉGIMES D'IMPOSITION
+  // ----------------------------------------------------
+
   async getRegimes(paysCode = 'BJ') {
     return (this.prisma as any).taxRegimeImposition.findMany({
       where: { paysCode, isDeleted: false },
       orderBy: { code: 'asc' },
     });
+  }
+
+  async createRegime(dto: CreateTaxRegimeDto) {
+    return (this.prisma as any).taxRegimeImposition.create({
+      data: {
+        paysCode: dto.paysCode,
+        code: dto.code,
+        libelle: dto.libelle,
+        seuilChiffreAffairesMax: dto.seuilChiffreAffairesMax,
+        obligationComptable: dto.obligationComptable || 'COMPTABILITE_SIMPLIFIEE',
+        dateDebutValidite: new Date(dto.dateDebutValidite),
+        dateFinValidite: dto.dateFinValidite ? new Date(dto.dateFinValidite) : null,
+      },
+    });
+  }
+
+  async updateRegime(id: string, dto: UpdateTaxRegimeDto) {
+    const regime = await (this.prisma as any).taxRegimeImposition.findUnique({
+      where: { id },
+    });
+    if (!regime) {
+      throw new NotFoundException('Régime introuvable.');
+    }
+
+    return (this.prisma as any).taxRegimeImposition.update({
+      where: { id },
+      data: {
+        ...(dto.libelle ? { libelle: dto.libelle } : {}),
+        ...(dto.seuilChiffreAffairesMax !== undefined ? { seuilChiffreAffairesMax: dto.seuilChiffreAffairesMax } : {}),
+        ...(dto.obligationComptable ? { obligationComptable: dto.obligationComptable } : {}),
+        ...(dto.dateDebutValidite ? { dateDebutValidite: new Date(dto.dateDebutValidite) } : {}),
+        ...(dto.dateFinValidite !== undefined
+          ? { dateFinValidite: dto.dateFinValidite ? new Date(dto.dateFinValidite) : null }
+          : {}),
+      },
+    });
+  }
+
+  async deleteRegime(id: string) {
+    const regime = await (this.prisma as any).taxRegimeImposition.findUnique({
+      where: { id },
+    });
+    if (!regime) {
+      throw new NotFoundException('Régime introuvable.');
+    }
+
+    await (this.prisma as any).taxRegimeImposition.update({
+      where: { id },
+      data: { isDeleted: true },
+    });
+
+    return { success: true, message: 'Régime d\'imposition supprimé avec succès.' };
   }
 }

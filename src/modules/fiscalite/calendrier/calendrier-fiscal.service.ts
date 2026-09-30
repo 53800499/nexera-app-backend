@@ -57,7 +57,7 @@ export class CalendrierFiscalService {
 
     const types = await (this.prisma as any).taxType.findMany({
       where: { paysCode: contribuable.paysCode, actif: true },
-      include: { calendarsTypes: true },
+      include: { calendriersTypes: true },
     });
 
     const now = new Date();

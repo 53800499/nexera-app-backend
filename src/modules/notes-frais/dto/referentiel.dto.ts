@@ -136,15 +136,108 @@ export class CalculerIndemniteKmDto {
   @Min(1)
   puissanceFiscale: number;
 
-  @ApiPropertyOptional({ description: 'Type de véhicule (VOITURE, MOTO)' })
+  @ApiPropertyOptional({ description: 'Type de véhicule (VOITURE, MOTO, AUTRE)' })
   @IsOptional()
   @IsString()
-  typeVehicule?: 'VOITURE' | 'MOTO';
+  typeVehicule?: 'VOITURE' | 'MOTO' | 'AUTRE';
 
   @ApiPropertyOptional({ description: 'Code pays ISO2 (défaut: BJ)' })
   @IsOptional()
   @IsString()
   paysCode?: string;
+}
+
+export class CreateBaremeKmDto {
+  @ApiPropertyOptional({ description: 'Code pays ISO2 (défaut: BJ)' })
+  @IsOptional()
+  @IsString()
+  paysCode?: string;
+
+  @ApiProperty({ description: 'Puissance fiscale minimale (CV)' })
+  @IsNotEmpty()
+  @IsNumber()
+  @Min(1)
+  puissanceFiscaleMin: number;
+
+  @ApiPropertyOptional({ description: 'Puissance fiscale maximale (CV), null si sans limite supérieure' })
+  @IsOptional()
+  @IsNumber()
+  puissanceFiscaleMax?: number | null;
+
+  @ApiPropertyOptional({ description: 'Type de véhicule', default: 'VOITURE' })
+  @IsOptional()
+  @IsEnum(['VOITURE', 'MOTO', 'AUTRE'])
+  typeVehicule?: 'VOITURE' | 'MOTO' | 'AUTRE';
+
+  @ApiProperty({ description: 'Taux forfaitaire de remboursement par km en FCFA' })
+  @IsNotEmpty()
+  @IsNumber()
+  @Min(1)
+  tauxParKm: number;
+
+  @ApiPropertyOptional({ description: 'Devise monétaire (défaut: XOF)', default: 'XOF' })
+  @IsOptional()
+  @IsString()
+  deviseCode?: string;
+
+  @ApiProperty({ description: 'Date de début de validité (YYYY-MM-DD)' })
+  @IsNotEmpty()
+  @IsDateString()
+  dateDebutValidite: string;
+
+  @ApiPropertyOptional({ description: 'Date de fin de validité (YYYY-MM-DD)' })
+  @IsOptional()
+  @IsDateString()
+  dateFinValidite?: string;
+
+  @ApiPropertyOptional({ description: 'Texte légal ou référence réglementaire (ex: CGI Bénin 2026)' })
+  @IsOptional()
+  @IsString()
+  texteReference?: string;
+}
+
+export class UpdateBaremeKmDto {
+  @ApiPropertyOptional({ description: 'Puissance fiscale minimale (CV)' })
+  @IsOptional()
+  @IsNumber()
+  @Min(1)
+  puissanceFiscaleMin?: number;
+
+  @ApiPropertyOptional({ description: 'Puissance fiscale maximale (CV)' })
+  @IsOptional()
+  @IsNumber()
+  puissanceFiscaleMax?: number | null;
+
+  @ApiPropertyOptional({ description: 'Type de véhicule' })
+  @IsOptional()
+  @IsEnum(['VOITURE', 'MOTO', 'AUTRE'])
+  typeVehicule?: 'VOITURE' | 'MOTO' | 'AUTRE';
+
+  @ApiPropertyOptional({ description: 'Taux forfaitaire de remboursement par km en FCFA' })
+  @IsOptional()
+  @IsNumber()
+  @Min(1)
+  tauxParKm?: number;
+
+  @ApiPropertyOptional({ description: 'Devise monétaire' })
+  @IsOptional()
+  @IsString()
+  deviseCode?: string;
+
+  @ApiPropertyOptional({ description: 'Date de début de validité (YYYY-MM-DD)' })
+  @IsOptional()
+  @IsDateString()
+  dateDebutValidite?: string;
+
+  @ApiPropertyOptional({ description: 'Date de fin de validité (YYYY-MM-DD)' })
+  @IsOptional()
+  @IsDateString()
+  dateFinValidite?: string;
+
+  @ApiPropertyOptional({ description: 'Texte légal ou référence réglementaire' })
+  @IsOptional()
+  @IsString()
+  texteReference?: string;
 }
 
 export class CalculerPerDiemDto {
@@ -164,3 +257,95 @@ export class CalculerPerDiemDto {
   @IsString()
   paysCode?: string;
 }
+
+export class CreateBaremePerDiemDto {
+  @ApiPropertyOptional({ description: 'Code pays ISO2 (défaut: BJ)' })
+  @IsOptional()
+  @IsString()
+  paysCode?: string;
+
+  @ApiProperty({ description: 'Zone géographique (ex: Cotonou & Grand Nokoué, Intérieur, Sous-région...)' })
+  @IsNotEmpty()
+  @IsString()
+  zoneGeographique: string;
+
+  @ApiPropertyOptional({ description: 'Catégorie professionnelle éligible (ex: TOUTES, CADRE...)' })
+  @IsOptional()
+  @IsString()
+  categorieProfessionnelleLibelle?: string;
+
+  @ApiProperty({ description: 'Montant forfaitaire journalier en FCFA' })
+  @IsNotEmpty()
+  @IsNumber()
+  @Min(1)
+  montantJour: number;
+
+  @ApiPropertyOptional({ description: 'Devise monétaire (défaut: XOF)', default: 'XOF' })
+  @IsOptional()
+  @IsString()
+  deviseCode?: string;
+
+  @ApiPropertyOptional({ description: 'Le forfait couvre-t-il l’hébergement ?', default: false })
+  @IsOptional()
+  @IsBoolean()
+  couvreHebergement?: boolean;
+
+  @ApiPropertyOptional({ description: 'Le forfait couvre-t-il la restauration ?', default: true })
+  @IsOptional()
+  @IsBoolean()
+  couvreRestauration?: boolean;
+
+  @ApiProperty({ description: 'Date de début de validité (YYYY-MM-DD)' })
+  @IsNotEmpty()
+  @IsDateString()
+  dateDebutValidite: string;
+
+  @ApiPropertyOptional({ description: 'Date de fin de validité (YYYY-MM-DD)' })
+  @IsOptional()
+  @IsDateString()
+  dateFinValidite?: string;
+}
+
+export class UpdateBaremePerDiemDto {
+  @ApiPropertyOptional({ description: 'Zone géographique' })
+  @IsOptional()
+  @IsString()
+  zoneGeographique?: string;
+
+  @ApiPropertyOptional({ description: 'Catégorie professionnelle éligible' })
+  @IsOptional()
+  @IsString()
+  categorieProfessionnelleLibelle?: string;
+
+  @ApiPropertyOptional({ description: 'Montant forfaitaire journalier en FCFA' })
+  @IsOptional()
+  @IsNumber()
+  @Min(1)
+  montantJour?: number;
+
+  @ApiPropertyOptional({ description: 'Devise monétaire' })
+  @IsOptional()
+  @IsString()
+  deviseCode?: string;
+
+  @ApiPropertyOptional({ description: 'Le forfait couvre-t-il l’hébergement ?' })
+  @IsOptional()
+  @IsBoolean()
+  couvreHebergement?: boolean;
+
+  @ApiPropertyOptional({ description: 'Le forfait couvre-t-il la restauration ?' })
+  @IsOptional()
+  @IsBoolean()
+  couvreRestauration?: boolean;
+
+  @ApiPropertyOptional({ description: 'Date de début de validité (YYYY-MM-DD)' })
+  @IsOptional()
+  @IsDateString()
+  dateDebutValidite?: string;
+
+  @ApiPropertyOptional({ description: 'Date de fin de validité (YYYY-MM-DD)' })
+  @IsOptional()
+  @IsDateString()
+  dateFinValidite?: string;
+}
+

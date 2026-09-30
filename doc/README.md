@@ -31,6 +31,9 @@ La documentation est structurée selon les standards de l'ingénierie logicielle
 
 ### 📂 Dossiers Spécialisés & Décisions d'Architecture
 
+- 🏛️ **Spécifications Métier Globales (Domain Rules)** : [`business/overview.md`](./business/overview.md) (Règles BM-xxx, acteurs, cycles de vente, CMUP, paie, TVA, MECEF, scénarios BDD Gherkin).
+- ⚖️ **Module 7 — Fiscalité & Interconnexions** : [`business/fiscalite/NEXERA_M7_Fiscalite_Architecture_Interconnexions_Metier.md`](./business/fiscalite/NEXERA_M7_Fiscalite_Architecture_Interconnexions_Metier.md) (Architecture du moteur fiscal, contrats inter-modules M1-M7, schéma PostgreSQL `tax`, barèmes versionnés et liquidation IS).
+- 🧠 **Logique Métier & Règles Serveur** : [`logique-metier/README.md`](./logique-metier/README.md) (Règles fonctionnelles approfondies pour chaque module : Facturation, CMUP, Paie, TVA, FEC, Audit).
 - 🏗️ **Architecture approfondie** : [`architecture/architecture.md`](./architecture/architecture.md) (Diagrammes de flux, séquence et modèles de composants C4).
 - 🗄️ **Dictionnaire de Données** : [`database/data-model.md`](./database/data-model.md) (Détail de chaque entité, attributs et contraintes).
 - 🚀 **Procédures d'Exploitation** : [`deployment/deployment.md`](./deployment/deployment.md) (Déploiement pas-à-pas, rollback et haute disponibilité).

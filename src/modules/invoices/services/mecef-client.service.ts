@@ -50,6 +50,8 @@ export class MecefClientService {
       update: {},
     });
 
+    const emitterIfu = await this.resolveEmitterIfu(tenantId, settings, false);
+
     const isConfigured = Boolean(
       (settings.mecefApiUrl && settings.mecefApiKey) ||
         (settings.mecefEnvironment === MecefEnvironment.SANDBOX && settings.mecefNim),
@@ -65,6 +67,7 @@ export class MecefClientService {
         (settings.mecefEnvironment as MecefEnvironment) ??
         MecefEnvironment.SANDBOX,
       mecefAutoNormalize: Boolean(settings.mecefAutoNormalize),
+      emitterIfu: emitterIfu !== '3201912345678' ? emitterIfu : (settings.vatNumber || null),
       isConfigured,
     };
   }
@@ -88,6 +91,18 @@ export class MecefClientService {
     }
     if (dto.mecefAutoNormalize !== undefined) {
       data.mecefAutoNormalize = dto.mecefAutoNormalize;
+    }
+    if (dto.emitterIfu !== undefined) {
+      const cleanIfu = dto.emitterIfu.trim();
+      data.vatNumber = cleanIfu;
+      try {
+        await (this.prisma as any).taxContribuable.updateMany({
+          where: { tenantId },
+          data: { identifiantFiscalUnique: cleanIfu },
+        });
+      } catch {
+        // ignore
+      }
     }
 
     await this.prisma.tenantSettings.upsert({
@@ -166,8 +181,15 @@ export class MecefClientService {
       where: { tenantId },
     });
 
+    const isProduction =
+      settings?.mecefEnvironment === MecefEnvironment.PRODUCTION;
+
     // Résolution de l'IFU de l'émetteur
-    const emitterIfu = await this.resolveEmitterIfu(tenantId, settings);
+    const emitterIfu = await this.resolveEmitterIfu(
+      tenantId,
+      settings,
+      isProduction,
+    );
 
     // Type de facture officiel e-MECeF
     const mecefType =
@@ -182,17 +204,59 @@ export class MecefClientService {
       normalizedAt: Date;
     };
 
+    let operatorName = 'Opérateur';
+    if (userId) {
+      try {
+        const opUser = await this.prisma.user.findUnique({
+          where: { id: userId },
+          select: { firstName: true, lastName: true },
+        });
+        if (opUser) {
+          operatorName =
+            [opUser.firstName, opUser.lastName].filter(Boolean).join(' ') ||
+            'Opérateur';
+        }
+      } catch {
+        // ignore
+      }
+    }
+
+    const clientContact =
+      invoice.contact?.phone ||
+      invoice.contact?.email ||
+      (invoice.client as any)?.phone ||
+      (invoice.client as any)?.email ||
+      null;
+
+    const clientAddress = invoice.client.billingAddress
+      ? typeof invoice.client.billingAddress === 'object'
+        ? Object.values(invoice.client.billingAddress)
+            .filter(Boolean)
+            .join(', ')
+        : String(invoice.client.billingAddress)
+      : null;
+
     try {
-      if (settings?.mecefApiUrl && settings?.mecefApiKey) {
+      if (isProduction) {
+        if (!settings?.mecefApiUrl || !settings?.mecefApiKey) {
+          throw new BadRequestException(
+            "Configuration e-MECeF incomplète en mode Production. Veuillez renseigner l'URL de l'API DGI et votre clé secrète dans Paramètres → Facturation e-MECeF.",
+          );
+        }
+
         certificationResult = await this.callExternalMecefApi({
           apiUrl: settings.mecefApiUrl,
           apiKey: settings.mecefApiKey,
           nim: settings.mecefNim || 'TEST01000001',
           type: mecefType,
-          reference: invoice.number,
+          invoiceNumber: invoice.number,
           emitterIfu,
           clientIfu: invoice.client.taxId || invoice.client.siret || null,
           clientName: invoice.client.companyName,
+          clientContact,
+          clientAddress,
+          operatorId: userId || '01',
+          operatorName,
           lines: invoice.lines,
           totalTtc: invoice.totalTtc,
           aibType,
@@ -200,14 +264,43 @@ export class MecefClientService {
           originalCode: originalMecefCode,
         });
       } else {
-        certificationResult = await this.simulateMecefCertification({
-          tenantId,
-          nim: settings?.mecefNim || 'TEST01000001',
-          type: mecefType,
-          invoiceNumber: invoice.number,
-          totalTtc: invoice.totalTtc,
-          issueDate: invoice.issueDate,
-        });
+        // En mode Sandbox : appel externe uniquement si URL de test explicitement configurée
+        if (
+          settings?.mecefApiUrl &&
+          settings?.mecefApiKey &&
+          (settings.mecefApiUrl.includes('test') ||
+            settings.mecefApiUrl.includes('dev') ||
+            settings.mecefApiUrl.includes('sandbox'))
+        ) {
+          certificationResult = await this.callExternalMecefApi({
+            apiUrl: settings.mecefApiUrl,
+            apiKey: settings.mecefApiKey,
+            nim: settings.mecefNim || 'TEST01000001',
+            type: mecefType,
+            invoiceNumber: invoice.number,
+            emitterIfu,
+            clientIfu: invoice.client.taxId || invoice.client.siret || null,
+            clientName: invoice.client.companyName,
+            clientContact,
+            clientAddress,
+            operatorId: userId || '01',
+            operatorName,
+            lines: invoice.lines,
+            totalTtc: invoice.totalTtc,
+            aibType,
+            aibAmount,
+            originalCode: originalMecefCode,
+          });
+        } else {
+          certificationResult = await this.simulateMecefCertification({
+            tenantId,
+            nim: settings?.mecefNim || 'TEST01000001',
+            type: mecefType,
+            invoiceNumber: invoice.number,
+            totalTtc: invoice.totalTtc,
+            issueDate: invoice.issueDate,
+          });
+        }
       }
     } catch (error: any) {
       const errorMessage =
@@ -224,9 +317,11 @@ export class MecefClientService {
         },
       });
 
-      throw new BadRequestException(
-        `Échec de la certification e-MECeF : ${errorMessage}`,
-      );
+      if (error instanceof BadRequestException) {
+        throw error;
+      }
+
+      throw new BadRequestException(errorMessage);
     }
 
     // 5. Enregistrement des données fiscales de normalisation
@@ -328,100 +423,370 @@ export class MecefClientService {
   private async resolveEmitterIfu(
     tenantId: string,
     settings: any,
+    isProduction = false,
   ): Promise<string> {
     try {
       const contribuable = await (this.prisma as any).taxContribuable?.findFirst({
         where: { tenantId, isDeleted: false },
       });
-      if (contribuable?.identifiantFiscalUnique) {
-        return contribuable.identifiantFiscalUnique;
+      if (contribuable?.identifiantFiscalUnique?.trim()) {
+        return contribuable.identifiantFiscalUnique.trim();
       }
     } catch {
       // ignore
     }
 
-    if (settings?.vatNumber) return settings.vatNumber;
-    if (settings?.siret) return settings.siret;
+    if (settings?.vatNumber?.trim()) return settings.vatNumber.trim();
+    if (settings?.siret?.trim()) return settings.siret.trim();
+
+    if (isProduction) {
+      throw new BadRequestException(
+        "L'Identifiant Fiscal Unique (IFU) de votre entreprise n'est pas renseigné. Veuillez configurer votre IFU dans Paramètres → Organisation avant de normaliser en production.",
+      );
+    }
 
     return '3201912345678'; // IFU de repli pour environnement de test
   }
 
   /**
-   * Appel HTTP réel vers l'API e-MECeF DGI.
+   * Résout proprement les URLs de l'API e-MECeF DGI Bénin (Production ou Test).
+   */
+  private resolveMecefEndpoint(baseUrl: string): {
+    invoiceUrl: string;
+    baseApiUrl: string;
+  } {
+    let clean = baseUrl.trim().replace(/\/+$/, '');
+
+    // Si l'utilisateur a renseigné l'URL directe se terminant par /invoice
+    if (clean.endsWith('/invoice')) {
+      const baseApi = clean.slice(0, -'/invoice'.length);
+      return { invoiceUrl: clean, baseApiUrl: baseApi };
+    }
+
+    // Auto-correction pour l'environnement de Test / Développeur officiel DGI
+    if (clean.includes('developper.impots.bj') && !clean.includes('/sygmef-emcf')) {
+      clean = `${clean}/sygmef-emcf/api`;
+    } else if (clean.includes('developper.impots.bj/sygmef-emcf') && !clean.includes('/api')) {
+      clean = `${clean}/api`;
+    }
+
+    // Auto-correction pour les URLs officielles de la plateforme SyGMEF DGI Bénin
+    if (clean.includes('sygmef.impots.bj') && !clean.includes('/emcf')) {
+      clean = `${clean}/emcf/api`;
+    } else if (clean.includes('sygmef.impots.bj/emcf') && !clean.includes('/api')) {
+      clean = `${clean}/api`;
+    }
+
+    return {
+      invoiceUrl: `${clean}/invoice`,
+      baseApiUrl: clean,
+    };
+  }
+
+  /**
+   * Appel HTTP vers l'API e-MECeF DGI Bénin (SFE / e-MCF).
+   * Conforme à la spécification officielle DGI Bénin (Version 1.0).
    */
   private async callExternalMecefApi(payload: {
     apiUrl: string;
     apiKey: string;
     nim: string;
     type: string;
-    reference: string;
+    invoiceNumber: string;
     emitterIfu: string;
     clientIfu: string | null;
     clientName: string;
+    clientContact?: string | null;
+    clientAddress?: string | null;
+    operatorId?: string;
+    operatorName?: string;
+    paymentMethod?: string;
     lines: any[];
     totalTtc: number;
     aibType: MecefAibType;
     aibAmount: number;
     originalCode: string | null;
   }) {
-    const cleanUrl = payload.apiUrl.replace(/\/+$/, '');
-    const endpoint = `${cleanUrl}/invoice`;
+    const { invoiceUrl, baseApiUrl } = this.resolveMecefEndpoint(payload.apiUrl);
 
-    const requestBody = {
-      ifu: payload.emitterIfu,
-      type: payload.type,
-      reference: payload.reference,
-      items: payload.lines.map((l) => ({
-        name: l.description,
-        price: l.unitPriceHt,
-        quantity: l.quantity,
-        taxGroup: l.taxGroup || l.taxRate?.taxGroup || 'B',
-        taxSpecific: 0,
-        originalPrice: l.unitPriceHt,
-        priceModification: 0,
-      })),
-      client: {
-        ifu: payload.clientIfu,
-        name: payload.clientName,
-      },
-      aib: payload.aibType === MecefAibType.NONE ? null : payload.aibType,
-      originalCode: payload.originalCode,
+    const clientIfuClean =
+      payload.clientIfu && payload.clientIfu.trim().length === 13
+        ? payload.clientIfu.trim()
+        : null;
+
+    // 1. Articles (ItemDto - conforme spec DGI p.10)
+    const items = payload.lines.map((l) => {
+      const rate = l.taxRate?.rate ?? 0;
+      const priceTtc = Math.round(Number(l.unitPriceHt) * (1 + rate / 100));
+      const rawGroup = (l.taxGroup || l.taxRate?.taxGroup || 'B').toUpperCase().trim();
+      const taxGroup = ['A', 'B', 'C', 'D', 'E', 'F'].includes(rawGroup)
+        ? rawGroup
+        : 'B';
+
+      const item: Record<string, any> = {
+        name: (l.description || l.name || 'Article').trim(),
+        price: priceTtc > 0 ? priceTtc : Math.max(1, Math.round(Number(l.unitPriceHt))),
+        quantity: Number(l.quantity) > 0 ? Number(l.quantity) : 1,
+        taxGroup,
+      };
+
+      if (l.code || l.itemCode) {
+        item.code = String(l.code || l.itemCode).trim();
+      }
+
+      return item;
+    });
+
+    // 2. Opérateur (OperatorDto - OBLIGATOIRE selon spec DGI p.10)
+    const operator = {
+      id: payload.operatorId ? String(payload.operatorId).slice(0, 10) : '01',
+      name: (payload.operatorName || 'Opérateur').trim().slice(0, 50),
     };
 
+    // 3. Corps de la requête InvoiceRequestDataDto (spec DGI p.9)
+    const requestBody: Record<string, any> = {
+      ifu: payload.emitterIfu.trim(),
+      type: payload.type,
+      items,
+      operator,
+    };
+
+    // Client (ClientDto - optionnel)
+    if (payload.clientName && payload.clientName.trim()) {
+      const clientObj: Record<string, any> = {
+        name: payload.clientName.trim(),
+      };
+      if (clientIfuClean) {
+        clientObj.ifu = clientIfuClean;
+      }
+      if (payload.clientContact && payload.clientContact.trim()) {
+        clientObj.contact = payload.clientContact.trim().slice(0, 100);
+      }
+      if (payload.clientAddress && payload.clientAddress.trim()) {
+        clientObj.address = payload.clientAddress.trim().slice(0, 150);
+      }
+      requestBody.client = clientObj;
+    }
+
+    // AIB (AibGroupTypeEnum - optionnel "A" ou "B", NE PAS envoyer null)
+    if (payload.aibType === MecefAibType.A || (payload.aibType as string) === 'A') {
+      requestBody.aib = 'A';
+    } else if (payload.aibType === MecefAibType.B || (payload.aibType as string) === 'B') {
+      requestBody.aib = 'B';
+    }
+
+    // Référence pour facture d'avoir (FA ou EA - OBLIGATOIRE 24 carats de Code MECeF d'origine, spec DGI p.9)
+    if (payload.type === 'FA' || payload.type === 'EA') {
+      const cleanRef = (payload.originalCode || '').replace(/[^a-zA-Z0-9]/g, '');
+      if (cleanRef.length !== 24) {
+        throw new BadRequestException(
+          `La référence de la facture originale pour une facture d'avoir doit comporter exactement 24 caractères (Code MECeF reçu: "${payload.originalCode || 'vide'}").`,
+        );
+      }
+      requestBody.reference = cleanRef;
+    }
+
+    // Détail paiement (PaymentDto - spec DGI p.10)
+    const paymentType = this.mapPaymentType(payload.paymentMethod);
+    requestBody.payment = [
+      {
+        name: paymentType,
+        amount: Math.round(payload.totalTtc),
+      },
+    ];
+
+    const cleanToken = this.sanitizeToken(payload.apiKey);
+
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 10000);
+    const timeoutId = setTimeout(() => controller.abort(), 30000);
 
     try {
-      const response = await fetch(endpoint, {
+      this.logger.log(
+        `[MecefClient] Envoi demande de facture vers ${invoiceUrl} (IFU: ${requestBody.ifu}, Type: ${requestBody.type})`,
+      );
+
+      const response = await fetch(invoiceUrl, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${payload.apiKey}`,
+          Accept: 'application/json',
+          Authorization: `Bearer ${cleanToken}`,
         },
         body: JSON.stringify(requestBody),
         signal: controller.signal,
       });
 
-      clearTimeout(timeoutId);
-
       if (!response.ok) {
         const errorText = await response.text();
-        throw new Error(
-          `Erreur API DGI [${response.status}]: ${errorText || response.statusText}`,
+        if (response.status === 401) {
+          const jwt = this.parseJwtPayload(cleanToken);
+          const now = Date.now();
+          const isExpired = Boolean(jwt?.exp && jwt.exp * 1000 < now);
+          const isNotYetValid = Boolean(jwt?.nbf && jwt.nbf * 1000 > now);
+          const expFormatted = jwt?.exp
+            ? new Date(jwt.exp * 1000).toLocaleString('fr-FR')
+            : null;
+          const nbfFormatted = jwt?.nbf
+            ? new Date(jwt.nbf * 1000).toLocaleString('fr-FR')
+            : null;
+
+          if (isExpired) {
+            throw new BadRequestException(
+              `Le jeton API DGI e-MECeF a expiré le ${expFormatted}. Veuillez générer un nouveau token sur le portail SyGMEF (https://sygmef.impots.bj) puis le mettre à jour dans Paramètres → Facturation e-MECeF.`,
+            );
+          }
+          if (isNotYetValid) {
+            throw new BadRequestException(
+              `Le jeton API DGI e-MECeF n'est pas encore actif (valide à partir du ${nbfFormatted}). Vérifiez la date et l'heure de votre machine ou régénérez le token sur SyGMEF.`,
+            );
+          }
+
+          let mismatchHint = '';
+          const tokenNim = jwt?.unique_name?.split('|')?.[1];
+          const tokenIfu = jwt?.unique_name?.split('|')?.[0];
+          if (
+            tokenNim &&
+            payload.nim &&
+            tokenNim.toUpperCase() !== payload.nim.toUpperCase()
+          ) {
+            mismatchHint += ` [Incohérence NIM détectée : votre token est lié à la machine "${tokenNim}", mais le NIM configuré est "${payload.nim}"]`;
+          }
+          if (tokenIfu && String(tokenIfu).trim() !== payload.emitterIfu.trim()) {
+            mismatchHint += ` [Incohérence IFU détectée : votre token est émis pour l'IFU "${tokenIfu}", mais l'IFU émetteur configuré est "${payload.emitterIfu}"]`;
+          }
+
+          const validityInfo = expFormatted
+            ? ` (clé valide jusqu'au ${expFormatted})`
+            : '';
+
+          throw new BadRequestException(
+            `Authentification DGI refusée (401 Non autorisé)${validityInfo}.${mismatchHint} Le serveur de la DGI rejette la clé secrète d'API pour l'IFU "${payload.emitterIfu}" et le NIM "${payload.nim}". Assurez-vous sur le portail SyGMEF (https://sygmef.impots.bj) que cette machine NIM est bien déclarée, active et rattachée à cet IFU.`,
+          );
+        }
+
+        const readableError = this.extractDgiErrorMessage(
+          response.status,
+          errorText,
+        );
+        throw new BadRequestException(
+          `Erreur DGI (${response.status}) : ${readableError}`,
         );
       }
 
       const data = (await response.json()) as any;
 
+      if (data.errorCode || data.errorDesc) {
+        const desc =
+          DGI_ERROR_CODES[String(data.errorCode)] ||
+          data.errorDesc ||
+          `Code d'erreur DGI ${data.errorCode}`;
+        throw new BadRequestException(`Rejet e-MECeF (DGI Bénin) : ${desc}`);
+      }
+
+      // Finalisation obligatoire (PUT /api/invoice/{uid}/confirm - spec DGI p.14-15)
+      let securityData = data;
+      if (data.uid && !data.codeMECeFDGI && !data.codeMECeF && !data.codeMecef) {
+        const confirmUrl = `${baseApiUrl}/invoice/${data.uid}/confirm`;
+        let confirmResponse = await fetch(confirmUrl, {
+          method: 'PUT',
+          headers: {
+            Accept: 'application/json',
+            Authorization: `Bearer ${cleanToken}`,
+          },
+          signal: controller.signal,
+        });
+
+        if (!confirmResponse.ok && confirmResponse.status === 405) {
+          // Repli POST si PUT n'est pas autorisé par un proxy intermédiaire
+          confirmResponse = await fetch(confirmUrl, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Accept: 'application/json',
+              Authorization: `Bearer ${cleanToken}`,
+            },
+            body: JSON.stringify({ action: 'confirm' }),
+            signal: controller.signal,
+          });
+        }
+
+        if (!confirmResponse.ok) {
+          const confirmErrorText = await confirmResponse.text();
+          const readableError = this.extractDgiErrorMessage(
+            confirmResponse.status,
+            confirmErrorText,
+          );
+          throw new BadRequestException(
+            `Erreur de confirmation fiscale DGI (${confirmResponse.status}) : ${readableError}`,
+          );
+        }
+
+        securityData = (await confirmResponse.json()) as any;
+
+        if (securityData.errorCode || securityData.errorDesc) {
+          const desc =
+            DGI_ERROR_CODES[String(securityData.errorCode)] ||
+            securityData.errorDesc ||
+            `Code d'erreur DGI ${securityData.errorCode}`;
+          throw new BadRequestException(
+            `Échec de confirmation e-MECeF (DGI Bénin) : ${desc}`,
+          );
+        }
+      }
+
+      clearTimeout(timeoutId);
+
+      const codeMECeF =
+        securityData.codeMECeFDGI ||
+        securityData.codeMECeF ||
+        securityData.codeMecef ||
+        data.codeMECeFDGI ||
+        data.codeMECeF ||
+        data.codeMecef;
+
+      if (!codeMECeF) {
+        throw new Error(
+          `L'API DGI n'a renvoyé aucun code de sécurité MECeF valide. Réponse reçue: ${JSON.stringify(securityData)}`,
+        );
+      }
+
+      const nim = securityData.nim || data.nim || payload.nim;
+      const counters = securityData.counters || data.counters || '1/1 FV';
+      const qrCodeData =
+        securityData.qrCode ||
+        securityData.qrCodeUrl ||
+        data.qrCode ||
+        data.qrCodeUrl ||
+        `https://mecef.impots.bj/verify/${nim}/${codeMECeF}`;
+
       return {
-        nim: data.nim || payload.nim,
-        counters: data.counters || '1/1 FV',
-        codeMECeF: data.codeMECeF || data.codeMecef,
-        qrCodeData: data.qrCode || data.qrCodeUrl || data.codeMECeF,
-        normalizedAt: data.dateTime ? new Date(data.dateTime) : new Date(),
+        nim,
+        counters,
+        codeMECeF,
+        qrCodeData,
+        normalizedAt: this.parseDgiDateTime(
+          securityData.dateTime || data.dateTime,
+        ),
       };
     } catch (err: any) {
       clearTimeout(timeoutId);
+      if (err.name === 'AbortError') {
+        throw new Error(
+          `Délai d'attente dépassé (30s) avec le serveur DGI e-MECeF (${invoiceUrl}). Le serveur DGI est peut-être temporairement inaccessible ou surchargé.`,
+        );
+      }
+      const cause = err.cause?.message || err.cause?.code || '';
+      const detail = cause ? ` (${cause})` : '';
+      if (
+        err.message &&
+        (err.message.includes('fetch failed') ||
+          err.message.includes('ECONNREFUSED') ||
+          err.message.includes('ENOTFOUND'))
+      ) {
+        throw new Error(
+          `Impossible de joindre le serveur DGI e-MECeF (${invoiceUrl})${detail}. Vérifiez l'URL de l'API dans Paramètres → Facturation e-MECeF et l'accès réseau de votre serveur Nexera.`,
+        );
+      }
       throw err;
     }
   }
@@ -479,4 +844,227 @@ export class MecefClientService {
     if (key.length <= 8) return '****';
     return `${key.slice(0, 4)}...${key.slice(-4)}`;
   }
+
+  private sanitizeToken(raw: string): string {
+    let token = raw.trim();
+    token = token.replace(/^["']|["']$/g, '');
+    token = token.replace(/^bearer\s+/i, '').trim();
+    return token;
+  }
+
+  private parseJwtPayload(token: string): any | null {
+    try {
+      const parts = token.trim().split('.');
+      if (parts.length >= 2) {
+        const base64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+        const padded = base64.padEnd(
+          base64.length + ((4 - (base64.length % 4)) % 4),
+          '=',
+        );
+        const decoded = Buffer.from(padded, 'base64').toString('utf8');
+        return JSON.parse(decoded);
+      }
+    } catch {
+      // ignore
+    }
+    return null;
+  }
+
+  /**
+   * Analyse la date renvoyée par l'API e-MECeF au format "DD/MM/YYYY HH:mm:ss" ou ISO 8601.
+   */
+  private parseDgiDateTime(rawDate?: string): Date {
+    if (!rawDate) return new Date();
+    const str = String(rawDate).trim();
+    const match = str.match(
+      /^(\d{2})\/(\d{2})\/(\d{4})(?:\s+(\d{2}):(\d{2}):(\d{2}))?/,
+    );
+    if (match) {
+      const [, d, m, y, h = '0', min = '0', s = '0'] = match;
+      const date = new Date(Date.UTC(+y, +m - 1, +d, +h - 1, +min, +s));
+      if (!isNaN(date.getTime())) return date;
+    }
+    const fallback = new Date(str);
+    return isNaN(fallback.getTime()) ? new Date() : fallback;
+  }
+
+  /**
+   * Mappe le mode de paiement interne vers l'énumération officielle PaymentTypeEnum de la DGI.
+   */
+  private mapPaymentType(method?: string): string {
+    if (!method) return 'ESPECES';
+    const m = method.toUpperCase().replace(/\s+/g, '');
+    if (m.includes('VIREMENT') || m.includes('BANK') || m.includes('TRANSFER')) {
+      return 'VIREMENT';
+    }
+    if (
+      m.includes('CARTE') ||
+      m.includes('CARD') ||
+      m.includes('VISA') ||
+      m.includes('MASTERCARD')
+    ) {
+      return 'CARTEBANCAIRE';
+    }
+    if (
+      m.includes('MOBILE') ||
+      m.includes('MOMO') ||
+      m.includes('MTN') ||
+      m.includes('MOOV') ||
+      m.includes('CELTIS')
+    ) {
+      return 'MOBILEMONEY';
+    }
+    if (m.includes('CHEQUE')) {
+      return 'CHEQUES';
+    }
+    if (m.includes('CREDIT')) {
+      return 'CREDIT';
+    }
+    if (m.includes('ESPECE') || m.includes('CASH')) {
+      return 'ESPECES';
+    }
+    return 'AUTRE';
+  }
+
+  /**
+   * Teste la connectivité et la validité des accès DGI e-MECeF pour une organisation.
+   */
+  async testConnection(tenantId: string) {
+    const settings = await this.prisma.tenantSettings.findUnique({
+      where: { tenantId },
+    });
+
+    if (!settings?.mecefApiKey) {
+      throw new BadRequestException(
+        "Aucune clé secrète d'API e-MECeF n'est enregistrée. Veuillez la configurer dans Paramètres → Facturation e-MECeF.",
+      );
+    }
+
+    const { baseApiUrl } = this.resolveMecefEndpoint(
+      settings.mecefApiUrl || 'https://sygmef.impots.bj/emcf/api',
+    );
+    const cleanToken = this.sanitizeToken(settings.mecefApiKey);
+
+    try {
+      const response = await fetch(`${baseApiUrl}/info/status`, {
+        method: 'GET',
+        headers: {
+          Authorization: `Bearer ${cleanToken}`,
+          Accept: 'application/json',
+        },
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        const readable = this.extractDgiErrorMessage(response.status, errorText);
+        throw new BadRequestException(`Test de connexion DGI refusé : ${readable}`);
+      }
+
+      const data = (await response.json()) as any;
+      return {
+        success: true,
+        status: data.status,
+        version: data.version,
+        ifu: data.ifu,
+        nim: data.nim,
+        tokenValid: data.tokenValid,
+        serverDateTime: data.serverDateTime,
+        emcfList: data.emcfList || [],
+      };
+    } catch (err: any) {
+      if (err instanceof BadRequestException) throw err;
+      throw new BadRequestException(
+        `Impossible de contacter le serveur DGI : ${err.message}`,
+      );
+    }
+  }
+
+  /**
+   * Analyse et traduit les erreurs retournées par l'API e-MECeF / SyGMEF en un message clair.
+   */
+  private extractDgiErrorMessage(status: number, rawText: string): string {
+    if (!rawText || !rawText.trim()) {
+      switch (status) {
+        case 401:
+          return 'Authentification DGI refusée (401 Non autorisé). Clé API ou NIM non reconnue.';
+        case 403:
+          return 'Accès refusé par la DGI (403 Accès interdit). Privilèges fiscaux insuffisants.';
+        case 404:
+          return 'Point de terminaison DGI introuvable (404). Vérifiez l’URL de l’API e-MECeF.';
+        case 500:
+        case 502:
+        case 503:
+        case 504:
+          return 'Le serveur DGI e-MECeF est momentanément indisponible ou en maintenance.';
+        default:
+          return `Le serveur DGI a retourné le code HTTP ${status}.`;
+      }
+    }
+
+    try {
+      const parsed = JSON.parse(rawText);
+      if (typeof parsed === 'string') return parsed;
+
+      // Codes d'erreurs officiels DGI (Annexe spec e-MCF p.24)
+      if (parsed.errorCode && DGI_ERROR_CODES[String(parsed.errorCode)]) {
+        return DGI_ERROR_CODES[String(parsed.errorCode)];
+      }
+
+      if (parsed.errorDesc && typeof parsed.errorDesc === 'string') {
+        return parsed.errorDesc;
+      }
+
+      // RFC 7807 / ASP.NET ProblemDetails
+      if (parsed.errors && typeof parsed.errors === 'object') {
+        const lines: string[] = [];
+        for (const [field, errs] of Object.entries(parsed.errors)) {
+          const list = Array.isArray(errs) ? errs.join(', ') : String(errs);
+          lines.push(`${field}: ${list}`);
+        }
+        if (lines.length > 0) return lines.join(' ; ');
+      }
+
+      if (parsed.detail && typeof parsed.detail === 'string') {
+        return parsed.detail;
+      }
+
+      if (parsed.message && typeof parsed.message === 'string') {
+        return parsed.message;
+      }
+
+      if (parsed.title && typeof parsed.title === 'string') {
+        if (parsed.title === 'Unauthorized' || status === 401) {
+          return 'Authentification DGI refusée (401 Non autorisé). Clé API ou NIM non autorisée sur SyGMEF.';
+        }
+        if (parsed.title === 'Forbidden' || status === 403) {
+          return 'Accès refusé par la DGI (403 Interdit). Droits fiscaux insuffisants.';
+        }
+        return parsed.title;
+      }
+    } catch {
+      // Ignorer l'échec de parsing JSON
+    }
+
+    const clean = rawText.replace(/\r?\n/g, ' ').trim();
+    return clean.length > 250 ? `${clean.slice(0, 250)}...` : clean;
+  }
 }
+
+/**
+ * Codes et libellés d'erreurs officiels issus de la spécification API e-MCF (DGI Bénin - Version 1.0, Annexe p.24)
+ */
+export const DGI_ERROR_CODES: Record<string, string> = {
+  '1': 'Le nombre maximum de factures en attente est dépassé (limite de 10 factures atteintes sans finalisation).',
+  '3': "Le type de facture n'est pas valide (attendu: FV, EV, FA, EA).",
+  '4': "La référence de la facture originale est manquante (obligatoire pour facture d'avoir FA / EA).",
+  '5': "La référence de la facture originale ne comporte pas 24 caractères.",
+  '6': "La valeur de l'AIB n'est pas valide (attendu: A pour 1% ou B pour 5%).",
+  '7': "Le type de paiement n'est pas valide.",
+  '8': 'La facture doit contenir au moins un article.',
+  '9': "Le groupe de taxation au niveau des articles n'est pas valide (A, B, C, D, E, F).",
+  '10': "La référence de la facture originale ne peut pas être validée, veuillez réessayer plus tard.",
+  '11': "La référence de la facture originale n'est pas valide (facture originale introuvable à la DGI).",
+  '12': "La référence de la facture originale n'est pas valide (le montant de la facture d'avoir dépasse le montant de la facture originale).",
+  '20': "La facture n'existe pas ou elle est déjà finalisée / annulée.",
+  '99': 'Erreur lors du traitement de la demande par le serveur DGI.',
+};
