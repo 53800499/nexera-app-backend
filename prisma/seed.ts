@@ -185,9 +185,9 @@ const NDF_MANAGER_PERMISSION_CODES = [
 ];
 
 async function main() {
-  const connectionString = process.env.DATABASE_URL;
+  const connectionString = process.env.DATABASE_URL || process.env.DIRECT_URL;
   if (!connectionString) {
-    throw new Error('DATABASE_URL must be set before running the seed.');
+    throw new Error('DATABASE_URL or DIRECT_URL must be set before running the seed.');
   }
 
   const prisma = new PrismaClient({

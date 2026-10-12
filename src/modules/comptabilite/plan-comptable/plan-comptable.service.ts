@@ -109,12 +109,30 @@ export class PlanComptableService {
   }
 
   async createCompte(tenantId: string, dto: CreateCompteDto, userId: string) {
-    const numeroCompte = (dto.numeroCompte || dto.numero || '').trim();
+    const rawNumero = (dto.numeroCompte || dto.numero || '').trim();
+    // Normaliser en retirant les espaces et points séparateurs éventuels
+    const numeroCompte = rawNumero.replace(/[\s.-]/g, '');
     const libelle = (dto.libelle || dto.intitule || '').trim();
-    const classe = dto.classe || (numeroCompte ? parseInt(numeroCompte.charAt(0), 10) : 1);
+    const premierCaractere = parseInt(numeroCompte.charAt(0), 10);
+    const classe =
+      dto.classe ||
+      (!isNaN(premierCaractere) && premierCaractere >= 1 && premierCaractere <= 9
+        ? premierCaractere
+        : 1);
 
     if (!numeroCompte || !libelle) {
       throw new BadRequestException('Le numéro de compte et le libellé sont obligatoires.');
+    }
+
+    if (numeroCompte.length < 2) {
+      throw new BadRequestException('Le numéro de compte doit comporter au moins 2 caractères.');
+    }
+
+    // EF-002: Seule la classe 4 peut avoir des caractères alphanumériques
+    if (classe !== 4 && !/^\d+$/.test(numeroCompte)) {
+      throw new BadRequestException(
+        'Seuls les comptes de classe 4 peuvent comporter des lettres ou caractères alphanumériques (Règle EF-002 AUDCIF).',
+      );
     }
 
     const existant = await (this.prisma as any).comptaCompte.findUnique({
@@ -127,15 +145,29 @@ export class PlanComptableService {
     });
 
     if (existant) {
-      throw new ConflictException(`Le compte ${numeroCompte} existe déjà pour cette entreprise.`);
+      // Si le compte existe déjà dans le plan mais était inactif, on le réactive
+      if (existant.statut === 'DESACTIVE') {
+        const reactivated = await (this.prisma as any).comptaCompte.update({
+          where: { id: existant.id },
+          data: {
+            libelle,
+            statut: 'ACTIF',
+            modifiePar: userId,
+          },
+        });
+        return {
+          ...reactivated,
+          numero: reactivated.numeroCompte,
+          intitule: reactivated.libelle,
+          actif: true,
+        };
+      }
+      throw new ConflictException(
+        `Le compte ${numeroCompte} (${existant.libelle}) existe déjà dans votre plan comptable.`,
+      );
     }
 
-    // EF-002: Seule la classe 4 peut avoir des caractères alphanumériques
-    if (classe !== 4 && !/^\d+$/.test(numeroCompte)) {
-      throw new BadRequestException('Seuls les comptes de classe 4 peuvent comporter des lettres (EF-002).');
-    }
-
-    return (this.prisma as any).comptaCompte.create({
+    const created = await (this.prisma as any).comptaCompte.create({
       data: {
         tenantId,
         numeroCompte,
@@ -147,6 +179,13 @@ export class PlanComptableService {
         creePar: userId,
       },
     });
+
+    return {
+      ...created,
+      numero: created.numeroCompte,
+      intitule: created.libelle,
+      actif: created.statut === 'ACTIF',
+    };
   }
 
   async updateCompte(tenantId: string, id: string, dto: UpdateCompteDto, userId: string) {
