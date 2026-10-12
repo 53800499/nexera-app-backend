@@ -22,8 +22,12 @@ export class PaymentDomainEventHandler {
       occurredAt: new Date(),
       payload: {
         paymentId: event.payment.id,
+        clientId: event.payment.clientId,
+        amount: event.payment.amount,
+        montantTotal: event.payment.amount,
         invoiceIds: event.allocations.map((a) => a.invoiceId),
         amounts: event.allocations,
+        advanceAmount: event.advanceAmount,
         paymentMethod: event.payment.paymentMethod,
       },
     });

@@ -83,11 +83,39 @@ export const NOTES_FRAIS_PERMISSIONS: PermissionDefinition[] = [
   { code: 'ndf.settings.manage', description: 'Configurer les politiques et barèmes de dépenses' },
 ];
 
+export const FISCALITE_PERMISSIONS: PermissionDefinition[] = [
+  { code: 'fiscalite.read', description: 'Consulter le module Fiscalité' },
+  { code: 'fiscalite.write', description: 'Gérer les déclarations et données fiscales' },
+  { code: 'manage:fiscalite', description: 'Administration Fiscalité (API guard)' },
+  { code: 'fiscalite.tva.manage', description: 'Gérer et valider les déclarations de TVA' },
+  { code: 'fiscalite.aib.manage', description: 'Gérer et émettre les retenues AIB' },
+  { code: 'fiscalite.is.manage', description: 'Calculer et valider l’Impôt sur les Sociétés et les acomptes' },
+  { code: 'fiscalite.liasse.manage', description: 'Générer et télétransmettre la liasse fiscale annuelle' },
+  { code: 'fiscalite.fec.export', description: 'Générer et exporter le Fichier des Écritures Comptables (FEC Arrêté 1085-C)' },
+  { code: 'fiscalite.baremes.validate', description: 'Double validation des barèmes fiscaux et sources réglementaires' },
+  { code: 'fiscalite.controles.manage', description: 'Suivre les contrôles fiscaux, recours et contentieux' },
+];
+
+export const COMPTA_PERMISSIONS: PermissionDefinition[] = [
+  { code: 'compta.read', description: 'Consulter le module Comptabilité (journaux, grand livre, balances)' },
+  { code: 'compta.write', description: 'Saisir des écritures et gérer le plan comptable' },
+  { code: 'manage:compta', description: 'Administration complète de la Comptabilité' },
+  { code: 'compta.ecritures.validate', description: 'Valider ou rejeter les écritures comptables (séparation des tâches)' },
+  { code: 'compta.cloture.manage', description: 'Clôturer les périodes et exercices comptables' },
+  { code: 'compta.lettrage.manage', description: 'Lettrer et délettrer les comptes de tiers' },
+  { code: 'compta.rapprochement.manage', description: 'Effectuer et valider les rapprochements bancaires' },
+  { code: 'compta.etats_financiers.generate', description: 'Générer les états financiers (Bilan, Compte de Résultat, Notes)' },
+  { code: 'compta.fec.export', description: 'Générer et exporter le Fichier des Écritures Comptables (Arrêté 1085-C)' },
+  { code: 'compta.audit.read', description: 'Consulter le journal d’audit comptable' },
+];
+
 const CABINET_SPACE_PERMISSIONS: PermissionDefinition[] = [
   {
     code: 'cabinet.read',
     description: 'Espace cabinet — consulter les entreprises liées',
   },
+  ...COMPTA_PERMISSIONS,
+  ...FISCALITE_PERMISSIONS,
 ];
 
 export const COMPANY_ROLES: RoleDefinition[] = [
@@ -97,6 +125,11 @@ export const COMPANY_ROLES: RoleDefinition[] = [
     code: 'RH_MANAGER',
     name: 'Responsable RH & Paie',
     description: 'Gestion complète des salariés, contrats, congés et paie',
+  },
+  {
+    code: 'COMPTABLE',
+    name: 'Comptable',
+    description: 'Tenue comptable, écritures, validation, lettrage et états financiers',
   },
 ];
 
@@ -117,6 +150,16 @@ const COLLABORATOR_PERMISSION_CODES = [
   'cabinet.read',
   'sync.read',
   'settings.read',
+  'compta.read',
+  'fiscalite.read',
+];
+
+const COMPTABLE_PERMISSION_CODES = [
+  'dashboard.read',
+  'settings.read',
+  'sync.read',
+  ...COMPTA_PERMISSIONS.map((p) => p.code),
+  ...FISCALITE_PERMISSIONS.map((p) => p.code),
 ];
 
 const RH_MANAGER_PERMISSION_CODES = [
@@ -150,6 +193,8 @@ export function getPermissionsForTenantType(
     ...COMPANY_CRM_PERMISSIONS,
     ...RH_PERMISSIONS,
     ...NOTES_FRAIS_PERMISSIONS,
+    ...FISCALITE_PERMISSIONS,
+    ...COMPTA_PERMISSIONS,
   ];
 }
 
@@ -167,6 +212,9 @@ export function getPermissionCodesForRole(
   if (roleCode === 'RH_MANAGER') {
     return RH_MANAGER_PERMISSION_CODES;
   }
+  if (roleCode === 'COMPTABLE') {
+    return COMPTABLE_PERMISSION_CODES;
+  }
 
   return getPermissionsForTenantType(tenantType).map((p) => p.code);
 }
@@ -178,6 +226,8 @@ export function getAllPlatformPermissions(): PermissionDefinition[] {
     ...COMPANY_CRM_PERMISSIONS,
     ...RH_PERMISSIONS,
     ...NOTES_FRAIS_PERMISSIONS,
+    ...FISCALITE_PERMISSIONS,
+    ...COMPTA_PERMISSIONS,
     ...CABINET_SPACE_PERMISSIONS,
   ]) {
     byCode.set(p.code, p);

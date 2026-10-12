@@ -5813,3 +5813,944 @@ model TaxJournalModificationBareme {
   @@index([tableModifiee, dateSaisie])
   @@map("tax_journal_modification_bareme")
 }
+
+
+// ============================================================================
+// MODULE 3 — COMPTABILITÉ (OHADA / SYSCOHADA)
+// Schéma de base de données compta (38 tables, 13 groupes fonctionnels)
+// ============================================================================
+
+enum ComptaCompteNature {
+  DEBIT
+  CREDIT
+}
+
+enum ComptaCompteStatut {
+  ACTIF
+  DESACTIVE
+  ARCHIVE
+}
+
+enum ComptaCompteAuxiliaireTiersType {
+  CLIENT
+  FOURNISSEUR
+  SALARIE
+  AUTRE
+}
+
+enum ComptaCompteAuxiliaireStatut {
+  ACTIF
+  ARCHIVE
+}
+
+enum ComptaJournalType {
+  ACHATS
+  VENTES
+  BANQUE
+  CAISSE
+  OD
+  A_NOUVEAUX
+  PAIE
+}
+
+enum ComptaExerciceStatut {
+  OUVERT
+  EN_CLOTURE
+  CLOTURE
+  ARCHIVE
+}
+
+enum ComptaSystemeComptable {
+  SN
+  SMT
+}
+
+enum ComptaPeriodeStatut {
+  OUVERTE
+  CLOTUREE
+}
+
+enum ComptaPeriodiciteModele {
+  AUCUNE
+  MENSUELLE
+  TRIMESTRIELLE
+}
+
+enum ComptaSensEcriture {
+  D
+  C
+}
+
+enum ComptaEcritureStatut {
+  BROUILLON
+  EN_ATTENTE_VALIDATION
+  VALIDEE
+  REJETEE
+  ANNULEE
+}
+
+enum ComptaEcritureOrigine {
+  MANUELLE
+  MODELE
+  MOTEUR_REGLES
+  M4
+  M5
+  M7
+  IMPORT_HISTORIQUE
+}
+
+enum ComptaValidationDecision {
+  VALIDEE
+  REJETEE
+}
+
+enum ComptaModuleSource {
+  M1
+  M2
+  M4
+  M5
+  M7
+}
+
+enum ComptaStatutTraitement {
+  RECU
+  TRAITE
+  ANOMALIE
+}
+
+enum ComptaLettrageStatut {
+  COMPLET
+  PARTIEL
+}
+
+enum ComptaFormatReleve {
+  CSV
+  OFX
+  MT940
+}
+
+enum ComptaStatutRapprochement {
+  NON_RAPPROCHE
+  RAPPROCHE
+}
+
+enum ComptaModeRapprochement {
+  AUTOMATIQUE
+  MANUEL
+}
+
+enum ComptaTypeEtatFinancier {
+  BILAN
+  RESULTAT
+  TFT
+  NOTE
+}
+
+enum ComptaTypeEditionEtat {
+  PROVISOIRE
+  DEFINITIVE
+}
+
+enum ComptaFecFormat {
+  CSV
+  TXT
+}
+
+enum ComptaFecJeuCaracteres {
+  ASCII
+  ISO_8859_15
+  EBCDIC
+}
+
+enum ComptaFecMotifGeneration {
+  ARCHIVAGE
+  CONTROLE_FISCAL
+  A_LA_DEMANDE
+}
+
+enum ComptaFluxImportExport {
+  PLAN_COMPTABLE
+  ECRITURES
+  BASE_COMPLETE
+}
+
+enum ComptaSensImportExport {
+  IMPORT
+  EXPORT
+}
+
+enum ComptaJobStatut {
+  SIMULATION
+  SIMULE
+  APPLIQUE
+  ERREUR
+}
+
+enum ComptaActionPrevuePlan {
+  CREATION
+  ACTIVATION
+  IGNORE
+}
+
+// ----------------------------------------------------
+// 1. RÉFÉRENTIEL INTERNATIONAL
+// ----------------------------------------------------
+
+model ComptaPays {
+  id                      String                     @id @default(uuid())
+  codeIso                 String                     @unique @map("code_iso") @db.Char(2)
+  nomPays                 String                     @map("nom_pays") @db.VarChar(100)
+  devisePrincipale        String                     @map("devise_principale") @db.Char(3)
+  referentielComptable    String                     @map("referentiel_comptable") @db.VarChar(50)
+  longueurMaxCompte       Int                        @default(13) @map("longueur_max_compte") @db.SmallInt
+  dureeConservationAnnees Int                        @map("duree_conservation_annees") @db.SmallInt
+
+  modelesPlanComptable    ComptaPlanComptableModele[]
+  seuilsSysteme           ComptaSeuilSystemeComptable[]
+  financialTemplates      ComptaFinancialStatementTemplate[]
+  reglesComptabilisation  ComptaRegleComptabilisation[]
+
+  @@map("compta_pays")
+}
+
+model ComptaPlanComptableModele {
+  id                   String              @id @default(uuid())
+  paysId               String              @map("pays_id")
+  numeroCompte         String              @map("numero_compte") @db.VarChar(13)
+  libelle              String              @map("libelle") @db.VarChar(255)
+  classe               Int                 @map("classe") @db.SmallInt
+  compteCollectifTiers Boolean             @default(false) @map("compte_collectif_tiers")
+  nature               ComptaCompteNature? @map("nature")
+  dateDebutValidite    DateTime            @map("date_debut_validite") @db.Date
+  dateFinValidite      DateTime?           @map("date_fin_validite") @db.Date
+
+  pays                 ComptaPays          @relation(fields: [paysId], references: [id], onDelete: Cascade)
+  comptes              ComptaCompte[]
+
+  @@index([paysId, numeroCompte])
+  @@map("compta_plan_comptable_modele")
+}
+
+model ComptaSeuilSystemeComptable {
+  id                String                           @id @default(uuid())
+  paysId            String                           @map("pays_id")
+  seuilCaSmt        Decimal                          @map("seuil_ca_smt") @db.Decimal(18, 2)
+  devise            String                           @map("devise") @db.Char(3)
+  dateDebutValidite DateTime                         @map("date_debut_validite") @db.Date
+  dateFinValidite   DateTime?                        @map("date_fin_validite") @db.Date
+
+  pays              ComptaPays                       @relation(fields: [paysId], references: [id], onDelete: Cascade)
+  configsAppliquees ComptaFinancialStatementConfig[]
+
+  @@map("compta_seuil_systeme_comptable")
+}
+
+// ----------------------------------------------------
+// 2. PLAN COMPTABLE DU TENANT
+// ----------------------------------------------------
+
+model ComptaCompte {
+  id                  String                     @id @default(uuid())
+  tenantId            String                     @map("tenant_id")
+  modeleId            String?                    @map("modele_id")
+  numeroCompte        String                     @map("numero_compte") @db.VarChar(13)
+  libelle             String                     @map("libelle") @db.VarChar(255)
+  classe              Int                        @map("classe") @db.SmallInt
+  statut              ComptaCompteStatut         @default(ACTIF) @map("statut")
+  mouvemente          Boolean                    @default(false) @map("mouvemente")
+  creePar             String?                    @map("cree_par")
+  creeLe              DateTime                   @default(now()) @map("cree_le")
+  modifiePar          String?                    @map("modifie_par")
+  modifieLe           DateTime?                  @updatedAt @map("modifie_le")
+
+  modele              ComptaPlanComptableModele? @relation(fields: [modeleId], references: [id])
+  comptesAuxiliaires  ComptaCompteAuxiliaire[]
+  lignesModele        ComptaModeleSaisieLigne[]
+  lignesEcriture      ComptaEcritureLigne[]
+  soldesPeriodiques   ComptaSoldePeriodique[]
+  journauxTresorerie  ComptaJournal[]            @relation("JournalCompteTresorerie")
+  reglesDebit         ComptaRegleComptabilisation[] @relation("RegleCompteDebit")
+  reglesCredit        ComptaRegleComptabilisation[] @relation("RegleCompteCredit")
+
+  @@unique([tenantId, numeroCompte])
+  @@index([tenantId, classe, statut])
+  @@map("compta_compte")
+}
+
+model ComptaCompteAuxiliaire {
+  id                     String                          @id @default(uuid())
+  tenantId               String                          @map("tenant_id")
+  compteCollectifId      String                          @map("compte_collectif_id")
+  numeroAuxiliaire       String                          @map("numero_auxiliaire") @db.VarChar(13)
+  libelle                String                          @map("libelle") @db.VarChar(255)
+  tiersType              ComptaCompteAuxiliaireTiersType @default(CLIENT) @map("tiers_type")
+  tiersReferenceExterne  String?                         @map("tiers_reference_externe")
+  statut                 ComptaCompteAuxiliaireStatut    @default(ACTIF) @map("statut")
+  creePar                String?                         @map("cree_par")
+  creeLe                 DateTime                        @default(now()) @map("cree_le")
+  modifiePar             String?                         @map("modifie_par")
+  modifieLe              DateTime?                       @updatedAt @map("modifie_le")
+
+  compteCollectif        ComptaCompte                    @relation(fields: [compteCollectifId], references: [id], onDelete: Cascade)
+  lignesEcriture         ComptaEcritureLigne[]
+  lettrages              ComptaLettrage[]
+  soldesPeriodiques      ComptaSoldePeriodique[]
+
+  @@unique([tenantId, numeroAuxiliaire])
+  @@index([tenantId, compteCollectifId])
+  @@map("compta_compte_auxiliaire")
+}
+
+// ----------------------------------------------------
+// 3. JOURNAUX & EXERCICES
+// ----------------------------------------------------
+
+model ComptaJournal {
+  id                  String                        @id @default(uuid())
+  tenantId            String                        @map("tenant_id")
+  codeJournal         String                        @map("code_journal") @db.VarChar(5)
+  libelle             String                        @map("libelle") @db.VarChar(100)
+  typeJournal         ComptaJournalType             @map("type_journal")
+  compteTresorerieId  String?                       @map("compte_tresorerie_id")
+  journalSysteme      Boolean                       @default(false) @map("journal_systeme")
+  moduleSourceDefaut  String?                       @map("module_source_defaut") @db.VarChar(20)
+  creePar             String?                       @map("cree_par")
+  creeLe              DateTime                      @default(now()) @map("cree_le")
+  modifiePar          String?                       @map("modifie_par")
+  modifieLe           DateTime?                     @updatedAt @map("modifie_le")
+
+  compteTresorerie    ComptaCompte?                 @relation("JournalCompteTresorerie", fields: [compteTresorerieId], references: [id])
+  ecritures           ComptaEcriture[]
+  modelesSaisie       ComptaModeleSaisie[]
+  habilitations       ComptaHabilitationJournal[]
+  reglesComptabilisation ComptaRegleComptabilisation[]
+  relevesBancaires    ComptaReleveBancaire[]
+
+  @@unique([tenantId, codeJournal])
+  @@map("compta_journal")
+}
+
+model ComptaExercice {
+  id                         String                            @id @default(uuid())
+  tenantId                   String                            @map("tenant_id")
+  dateDebut                  DateTime                          @map("date_debut") @db.Date
+  dateFin                    DateTime                          @map("date_fin") @db.Date
+  statut                     ComptaExerciceStatut              @default(OUVERT) @map("statut")
+  systemeComptable           ComptaSystemeComptable            @default(SN) @map("systeme_comptable")
+  systemeForceManuellement   Boolean                           @default(false) @map("systeme_force_manuellement")
+  resultatNet                Decimal?                          @map("resultat_net") @db.Decimal(18, 2)
+  dateCloture                DateTime?                         @map("date_cloture")
+  dateArchivage              DateTime?                         @map("date_archivage")
+  fecHashArchivage           String?                           @map("fec_hash_archivage") @db.VarChar(64)
+  creePar                    String?                           @map("cree_par")
+  creeLe                     DateTime                          @default(now()) @map("cree_le")
+  modifiePar                 String?                           @map("modifie_par")
+  modifieLe                  DateTime?                         @updatedAt @map("modifie_le")
+
+  periodes                   ComptaPeriode[]
+  ecritures                  ComptaEcriture[]
+  reouvertures               ComptaReouvertureExercice[]
+  configsSysteme             ComptaFinancialStatementConfig[]
+  etatsFinanciersGeneres     ComptaEtatFinancierGenere[]
+  fecExports                 ComptaFecExport[]
+  lecturesResultatExterne    ComptaLectureResultatExterne[]
+
+  @@index([tenantId, statut])
+  @@map("compta_exercice")
+}
+
+model ComptaPeriode {
+  id               String                     @id @default(uuid())
+  exerciceId       String                     @map("exercice_id")
+  anneeMois        String                     @map("annee_mois") @db.Char(7)
+  statut           ComptaPeriodeStatut        @default(OUVERTE) @map("statut")
+  dateCloture      DateTime?                  @map("date_cloture")
+  cloturePar       String?                    @map("cloture_par")
+
+  exercice         ComptaExercice             @relation(fields: [exerciceId], references: [id], onDelete: Cascade)
+  ecritures        ComptaEcriture[]
+  reouvertures     ComptaReouvertureExercice[]
+  soldesPeriodiques ComptaSoldePeriodique[]
+
+  @@unique([exerciceId, anneeMois])
+  @@map("compta_periode")
+}
+
+model ComptaReouvertureExercice {
+  id                 String         @id @default(uuid())
+  exerciceId         String         @map("exercice_id")
+  periodeId          String         @map("periode_id")
+  motif              String         @map("motif")
+  autorisePar        String         @map("autorise_par")
+  dateReouverture    DateTime       @default(now()) @map("date_reouverture")
+  dateRecloture      DateTime?      @map("date_recloture")
+  resultatRecalcule  Boolean        @default(false) @map("resultat_recalcule")
+
+  exercice           ComptaExercice @relation(fields: [exerciceId], references: [id], onDelete: Cascade)
+  periode            ComptaPeriode  @relation(fields: [periodeId], references: [id], onDelete: Cascade)
+
+  @@index([exerciceId, periodeId])
+  @@map("compta_reouverture_exercice")
+}
+
+// ----------------------------------------------------
+// 4. SAISIE DES ÉCRITURES & MODÈLES
+// ----------------------------------------------------
+
+model ComptaModeleSaisie {
+  id               String                    @id @default(uuid())
+  tenantId         String                    @map("tenant_id")
+  libelle          String                    @map("libelle") @db.VarChar(255)
+  journalDefautId  String?                   @map("journal_defaut_id")
+  periodicite      ComptaPeriodiciteModele   @default(AUCUNE) @map("periodicite")
+  actif            Boolean                   @default(true) @map("actif")
+  creePar          String?                   @map("cree_par")
+  creeLe           DateTime                  @default(now()) @map("cree_le")
+  modifiePar       String?                   @map("modifie_par")
+  modifieLe        DateTime?                 @updatedAt @map("modifie_le")
+
+  journalDefaut    ComptaJournal?            @relation(fields: [journalDefautId], references: [id])
+  lignes           ComptaModeleSaisieLigne[]
+
+  @@index([tenantId, actif])
+  @@map("compta_modele_saisie")
+}
+
+model ComptaModeleSaisieLigne {
+  id              String             @id @default(uuid())
+  modeleId        String             @map("modele_id")
+  ordre           Int                @map("ordre") @db.SmallInt
+  compteId        String             @map("compte_id")
+  libelleType     String?            @map("libelle_type") @db.VarChar(255)
+  sens            ComptaSensEcriture @map("sens")
+  montantFixe     Decimal?           @map("montant_fixe") @db.Decimal(18, 2)
+  montantVariable Boolean            @default(false) @map("montant_variable")
+
+  modele          ComptaModeleSaisie @relation(fields: [modeleId], references: [id], onDelete: Cascade)
+  compte          ComptaCompte       @relation(fields: [compteId], references: [id])
+
+  @@index([modeleId, ordre])
+  @@map("compta_modele_saisie_ligne")
+}
+
+model ComptaEcriture {
+  id                         String                      @id @default(uuid())
+  tenantId                   String                      @map("tenant_id")
+  exerciceId                 String                      @map("exercice_id")
+  periodeId                  String                      @map("periode_id")
+  journalId                  String                      @map("journal_id")
+  numEcriture                String?                     @map("num_ecriture") @db.VarChar(30)
+  dateEcriture               DateTime                    @map("date_ecriture") @db.Date
+  refPiece                   String?                     @map("ref_piece") @db.VarChar(50)
+  datePiece                  DateTime?                   @map("date_piece") @db.Date
+  libelle                    String                      @map("libelle") @db.VarChar(255)
+  statut                     ComptaEcritureStatut        @default(BROUILLON) @map("statut")
+  origine                    ComptaEcritureOrigine       @default(MANUELLE) @map("origine")
+  evenementSourceId          String?                     @map("evenement_source_id")
+  regularisationPostCloture  Boolean                     @default(false) @map("regularisation_post_cloture")
+  motifRegularisation        String?                     @map("motif_regularisation")
+  saisiPar                   String                      @map("saisi_par")
+  versionVerrou              Int                         @default(1) @map("version_verrou")
+  creePar                    String?                     @map("cree_par")
+  creeLe                     DateTime                    @default(now()) @map("cree_le")
+  modifiePar                 String?                     @map("modifie_par")
+  modifieLe                  DateTime?                   @updatedAt @map("modifie_le")
+
+  exercice                   ComptaExercice              @relation(fields: [exerciceId], references: [id])
+  periode                    ComptaPeriode               @relation(fields: [periodeId], references: [id])
+  journal                    ComptaJournal               @relation(fields: [journalId], references: [id])
+  evenementSource            ComptaEvenementSource?      @relation(fields: [evenementSourceId], references: [id])
+  lignes                     ComptaEcritureLigne[]
+  piecesJointes              ComptaPieceJointe[]
+  validations                ComptaValidationHistorique[]
+
+  @@unique([tenantId, exerciceId, journalId, numEcriture])
+  @@index([tenantId, statut, dateEcriture])
+  @@index([tenantId, journalId, dateEcriture])
+  @@map("compta_ecriture")
+}
+
+model ComptaEcritureLigne {
+  id                   String                      @id @default(uuid())
+  ecritureId           String                      @map("ecriture_id")
+  ordre                Int                         @map("ordre") @db.SmallInt
+  compteId             String                      @map("compte_id")
+  compteAuxiliaireId   String?                     @map("compte_auxiliaire_id")
+  libelleLigne         String?                     @map("libelle_ligne") @db.VarChar(255)
+  montantDebit         Decimal                     @default(0) @map("montant_debit") @db.Decimal(18, 2)
+  montantCredit        Decimal                     @default(0) @map("montant_credit") @db.Decimal(18, 2)
+  montantDevise        Decimal?                    @map("montant_devise") @db.Decimal(18, 2)
+  codeDevise           String?                     @map("code_devise") @db.Char(3)
+  lettrageId           String?                     @map("lettrage_id")
+  sectionAnalytiqueId  String?                     @map("section_analytique_id")
+
+  ecriture             ComptaEcriture              @relation(fields: [ecritureId], references: [id], onDelete: Cascade)
+  compte               ComptaCompte                @relation(fields: [compteId], references: [id])
+  compteAuxiliaire     ComptaCompteAuxiliaire?     @relation(fields: [compteAuxiliaireId], references: [id])
+  lettrage             ComptaLettrage?             @relation(fields: [lettrageId], references: [id])
+  sectionAnalytique    ComptaSectionAnalytique?    @relation(fields: [sectionAnalytiqueId], references: [id])
+  rapprochements       ComptaRapprochementBancaire[]
+
+  @@index([ecritureId, ordre])
+  @@index([compteId, ecritureId])
+  @@index([compteAuxiliaireId, lettrageId])
+  @@map("compta_ecriture_ligne")
+}
+
+model ComptaSectionAnalytique {
+  id          String                @id @default(uuid())
+  tenantId    String                @map("tenant_id")
+  code        String                @map("code") @db.VarChar(20)
+  libelle     String                @map("libelle") @db.VarChar(150)
+  actif       Boolean               @default(true) @map("actif")
+
+  lignes      ComptaEcritureLigne[]
+
+  @@unique([tenantId, code])
+  @@map("compta_section_analytique")
+}
+
+model ComptaPieceJointe {
+  id             String         @id @default(uuid())
+  ecritureId     String         @map("ecriture_id")
+  nomFichier     String         @map("nom_fichier") @db.VarChar(255)
+  cheminStockage String         @map("chemin_stockage")
+  typeMime       String?        @map("type_mime") @db.VarChar(100)
+  deposePar      String         @map("depose_par")
+  deposeLe       DateTime       @default(now()) @map("depose_le")
+
+  ecriture       ComptaEcriture @relation(fields: [ecritureId], references: [id], onDelete: Cascade)
+
+  @@index([ecritureId])
+  @@map("compta_piece_jointe")
+}
+
+// ----------------------------------------------------
+// 5. VALIDATION & WORKFLOW
+// ----------------------------------------------------
+
+model ComptaValidationHistorique {
+  id               String                   @id @default(uuid())
+  ecritureId       String                   @map("ecriture_id")
+  decision         ComptaValidationDecision @map("decision")
+  motifRejet       String?                  @map("motif_rejet")
+  decidePar        String                   @map("decide_par")
+  decideLe         DateTime                 @default(now()) @map("decide_le")
+  lotValidationId  String?                  @map("lot_validation_id")
+
+  ecriture         ComptaEcriture           @relation(fields: [ecritureId], references: [id], onDelete: Cascade)
+
+  @@index([ecritureId, decideLe])
+  @@map("compta_validation_historique")
+}
+
+model ComptaHabilitationJournal {
+  id            String        @id @default(uuid())
+  tenantId      String        @map("tenant_id")
+  utilisateurId String        @map("utilisateur_id")
+  journalId     String        @map("journal_id")
+  peutSaisir    Boolean       @default(true) @map("peut_saisir")
+  peutValider   Boolean       @default(false) @map("peut_valider")
+
+  journal       ComptaJournal @relation(fields: [journalId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, utilisateurId, journalId])
+  @@map("compta_habilitation_journal")
+}
+
+// ----------------------------------------------------
+// 6. MOTEUR DE COMPTABILISATION
+// ----------------------------------------------------
+
+model ComptaEvenementSource {
+  id                String                 @id @default(uuid())
+  tenantId          String                 @map("tenant_id")
+  moduleSource      ComptaModuleSource     @map("module_source")
+  typeEvenement     String                 @map("type_evenement") @db.VarChar(50)
+  referenceExterne  String                 @map("reference_externe") @db.VarChar(100)
+  payload           Json                   @map("payload")
+  statutTraitement  ComptaStatutTraitement @default(RECU) @map("statut_traitement")
+  motifAnomalie     String?                @map("motif_anomalie")
+  ecritureGenereeId String?                @map("ecriture_generee_id")
+  recuLe            DateTime               @default(now()) @map("recu_le")
+  traiteLe          DateTime?              @map("traite_le")
+
+  ecrituresGenerees ComptaEcriture[]
+
+  @@index([tenantId, statutTraitement, recuLe])
+  @@index([moduleSource, typeEvenement, referenceExterne])
+  @@map("compta_evenement_source")
+}
+
+model ComptaRegleComptabilisation {
+  id                      String         @id @default(uuid())
+  tenantId                String         @map("tenant_id")
+  paysId                  String?        @map("pays_id")
+  typeEvenement           String         @map("type_evenement") @db.VarChar(50)
+  critereCategorieArticle String?        @map("critere_categorie_article") @db.VarChar(50)
+  critereTauxTva          Decimal?       @map("critere_taux_tva") @db.Decimal(5, 2)
+  critereTypeTiers        String?        @map("critere_type_tiers") @db.VarChar(20)
+  compteDebitId           String?        @map("compte_debit_id")
+  compteCreditId          String?        @map("compte_credit_id")
+  journalCibleId          String         @map("journal_cible_id")
+  niveauSpecificite       Int            @map("niveau_specificite") @db.SmallInt
+  actif                   Boolean        @default(true) @map("actif")
+  creePar                 String?        @map("cree_par")
+  creeLe                  DateTime       @default(now()) @map("cree_le")
+  modifiePar              String?        @map("modifie_par")
+  modifieLe               DateTime?      @updatedAt @map("modifie_le")
+
+  pays                    ComptaPays?    @relation(fields: [paysId], references: [id])
+  compteDebit             ComptaCompte?  @relation("RegleCompteDebit", fields: [compteDebitId], references: [id])
+  compteCredit            ComptaCompte?  @relation("RegleCompteCredit", fields: [compteCreditId], references: [id])
+  journalCible            ComptaJournal  @relation(fields: [journalCibleId], references: [id])
+
+  @@index([tenantId, typeEvenement, actif])
+  @@map("compta_regle_comptabilisation")
+}
+
+// ----------------------------------------------------
+// 7. LETTRAGE & RAPPROCHEMENT
+// ----------------------------------------------------
+
+model ComptaLettrage {
+  id                 String                 @id @default(uuid())
+  tenantId           String                 @map("tenant_id")
+  compteAuxiliaireId String                 @map("compte_auxiliaire_id")
+  codeLettre         String                 @map("code_lettre") @db.VarChar(10)
+  statut             ComptaLettrageStatut   @default(COMPLET) @map("statut")
+  automatique        Boolean                @default(false) @map("automatique")
+  lettrePar          String                 @map("lettre_par")
+  lettreLe           DateTime               @default(now()) @map("lettre_le")
+  delettre           Boolean                @default(false) @map("delettre")
+
+  compteAuxiliaire   ComptaCompteAuxiliaire @relation(fields: [compteAuxiliaireId], references: [id], onDelete: Cascade)
+  lignesEcriture     ComptaEcritureLigne[]
+
+  @@unique([compteAuxiliaireId, codeLettre])
+  @@index([tenantId, compteAuxiliaireId])
+  @@map("compta_lettrage")
+}
+
+model ComptaReleveBancaire {
+  id              String                       @id @default(uuid())
+  tenantId        String                       @map("tenant_id")
+  journalId       String                       @map("journal_id")
+  formatSource    ComptaFormatReleve           @map("format_source")
+  dateDebut       DateTime                     @map("date_debut") @db.Date
+  dateFin         DateTime                     @map("date_fin") @db.Date
+  soldeOuverture  Decimal?                     @map("solde_ouverture") @db.Decimal(18, 2)
+  soldeCloture    Decimal?                     @map("solde_cloture") @db.Decimal(18, 2)
+  importePar      String                       @map("importe_par")
+  importeLe       DateTime                     @default(now()) @map("importe_le")
+
+  journal         ComptaJournal                @relation(fields: [journalId], references: [id])
+  lignes          ComptaLigneReleveBancaire[]
+
+  @@index([tenantId, journalId, dateDebut])
+  @@map("compta_releve_bancaire")
+}
+
+model ComptaLigneReleveBancaire {
+  id                   String                        @id @default(uuid())
+  releveId             String                        @map("releve_id")
+  dateOperation        DateTime                      @map("date_operation") @db.Date
+  libelle              String                        @map("libelle") @db.VarChar(255)
+  montant              Decimal                       @map("montant") @db.Decimal(18, 2)
+  referenceBancaire    String?                       @map("reference_bancaire") @db.VarChar(100)
+  empreinteDedup       String                        @map("empreinte_dedup") @db.VarChar(64)
+  statutRapprochement  ComptaStatutRapprochement     @default(NON_RAPPROCHE) @map("statut_rapprochement")
+
+  releve               ComptaReleveBancaire          @relation(fields: [releveId], references: [id], onDelete: Cascade)
+  rapprochements       ComptaRapprochementBancaire[]
+
+  @@unique([releveId, empreinteDedup])
+  @@index([releveId, statutRapprochement])
+  @@map("compta_ligne_releve_bancaire")
+}
+
+model ComptaRapprochementBancaire {
+  id              String                   @id @default(uuid())
+  ligneReleveId   String                   @map("ligne_releve_id")
+  ecritureLigneId String                   @map("ecriture_ligne_id")
+  mode            ComptaModeRapprochement  @default(MANUEL) @map("mode")
+  rapprochePar    String                   @map("rapproche_par")
+  rapprocheLe     DateTime                 @default(now()) @map("rapproche_le")
+
+  ligneReleve     ComptaLigneReleveBancaire @relation(fields: [ligneReleveId], references: [id], onDelete: Cascade)
+  ecritureLigne   ComptaEcritureLigne      @relation(fields: [ecritureLigneId], references: [id], onDelete: Cascade)
+
+  @@unique([ligneReleveId, ecritureLigneId])
+  @@map("compta_rapprochement_bancaire")
+}
+
+// ----------------------------------------------------
+// 8. RESTITUTIONS (GRAND LIVRE, BALANCE, SOLDES)
+// ----------------------------------------------------
+
+model ComptaSoldePeriodique {
+  id                 String                  @id @default(uuid())
+  tenantId           String                  @map("tenant_id")
+  compteId           String                  @map("compte_id")
+  compteAuxiliaireId String?                 @map("compte_auxiliaire_id")
+  periodeId          String                  @map("periode_id")
+  totalDebit         Decimal                 @default(0) @map("total_debit") @db.Decimal(18, 2)
+  totalCredit        Decimal                 @default(0) @map("total_credit") @db.Decimal(18, 2)
+  soldeCumule        Decimal                 @default(0) @map("solde_cumule") @db.Decimal(18, 2)
+  recalculeLe        DateTime                @default(now()) @map("recalcule_le")
+
+  compte             ComptaCompte            @relation(fields: [compteId], references: [id], onDelete: Cascade)
+  compteAuxiliaire   ComptaCompteAuxiliaire? @relation(fields: [compteAuxiliaireId], references: [id])
+  periode            ComptaPeriode           @relation(fields: [periodeId], references: [id], onDelete: Cascade)
+
+  @@unique([compteId, periodeId, compteAuxiliaireId])
+  @@index([tenantId, periodeId])
+  @@map("compta_solde_periodique")
+}
+
+// ----------------------------------------------------
+// 9. ÉTATS FINANCIERS
+// ----------------------------------------------------
+
+model ComptaFinancialStatementTemplate {
+  id                String                             @id @default(uuid())
+  paysId            String                             @map("pays_id")
+  systemeComptable  ComptaSystemeComptable             @map("systeme_comptable")
+  typeEtat          ComptaTypeEtatFinancier            @map("type_etat")
+  version           String                             @map("version") @db.VarChar(10)
+  mappingJson       Json                               @map("mapping_json")
+  dateDebutValidite DateTime                           @map("date_debut_validite") @db.Date
+  dateFinValidite   DateTime?                          @map("date_fin_validite") @db.Date
+
+  pays              ComptaPays                         @relation(fields: [paysId], references: [id], onDelete: Cascade)
+  lignes            ComptaFinancialStatementTemplateLigne[]
+
+  @@index([paysId, systemeComptable, typeEtat])
+  @@map("compta_financial_statement_template")
+}
+
+model ComptaFinancialStatementTemplateLigne {
+  id               String                           @id @default(uuid())
+  templateId       String                           @map("template_id")
+  referencePoste   String                           @map("reference_poste") @db.VarChar(10)
+  libellePoste     String                           @map("libelle_poste") @db.VarChar(255)
+  comptesBruts     String?                          @map("comptes_bruts") @db.VarChar(255)
+  comptesAmortProv String?                          @map("comptes_amort_prov") @db.VarChar(255)
+  signe            String                           @default("+") @map("signe") @db.Char(1)
+  ordreAffichage   Int                              @map("ordre_affichage") @db.SmallInt
+
+  template         ComptaFinancialStatementTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+
+  @@index([templateId, ordreAffichage])
+  @@map("compta_financial_statement_template_ligne")
+}
+
+model ComptaFinancialStatementConfig {
+  id                   String                       @id @default(uuid())
+  tenantId             String                       @map("tenant_id")
+  exerciceId           String                       @map("exercice_id")
+  caReference          Decimal?                     @map("ca_reference") @db.Decimal(18, 2)
+  seuilAppliqueId      String?                      @map("seuil_applique_id")
+  systemeRetenu        ComptaSystemeComptable       @default(SN) @map("systeme_retenu")
+  forceManuellement    Boolean                      @default(false) @map("force_manuellement")
+  justificationForcage String?                      @map("justification_forcage")
+
+  exercice             ComptaExercice               @relation(fields: [exerciceId], references: [id], onDelete: Cascade)
+  seuilApplique        ComptaSeuilSystemeComptable? @relation(fields: [seuilAppliqueId], references: [id])
+
+  @@unique([tenantId, exerciceId])
+  @@map("compta_financial_statement_config")
+}
+
+model ComptaEtatFinancierGenere {
+  id                String                     @id @default(uuid())
+  tenantId          String                     @map("tenant_id")
+  exerciceId        String                     @map("exercice_id")
+  systemeComptable  ComptaSystemeComptable     @map("systeme_comptable")
+  typeEdition       ComptaTypeEditionEtat      @default(PROVISOIRE) @map("type_edition")
+  totalActif        Decimal?                   @map("total_actif") @db.Decimal(18, 2)
+  totalPassif       Decimal?                   @map("total_passif") @db.Decimal(18, 2)
+  fichierPdfChemin  String?                    @map("fichier_pdf_chemin")
+  fichierXlsxChemin String?                    @map("fichier_xlsx_chemin")
+  generePar         String                     @map("genere_par")
+  genereLe          DateTime                   @default(now()) @map("genere_le")
+
+  exercice          ComptaExercice             @relation(fields: [exerciceId], references: [id], onDelete: Cascade)
+  notesAnnexes      ComptaNoteAnnexeGenere[]
+
+  @@index([tenantId, exerciceId])
+  @@map("compta_etat_financier_genere")
+}
+
+model ComptaNoteAnnexeGenere {
+  id              String                    @id @default(uuid())
+  etatFinancierId String                    @map("etat_financier_id")
+  numeroNote      String                    @map("numero_note") @db.VarChar(10)
+  libelleNote     String                    @map("libelle_note") @db.VarChar(255)
+  contenuJson     Json                      @map("contenu_json")
+
+  etatFinancier   ComptaEtatFinancierGenere @relation(fields: [etatFinancierId], references: [id], onDelete: Cascade)
+
+  @@index([etatFinancierId, numeroNote])
+  @@map("compta_note_annexe_genere")
+}
+
+// ----------------------------------------------------
+// 10. FEC (FICHIER DES ÉCRITURES COMPTABLES)
+// ----------------------------------------------------
+
+model ComptaFecExport {
+  id                     String                    @id @default(uuid())
+  tenantId               String                    @map("tenant_id")
+  exerciceId             String                    @map("exercice_id")
+  ifu                    String                    @map("ifu") @db.VarChar(30)
+  nomFichier             String                    @map("nom_fichier") @db.VarChar(100)
+  nombreFichiers         Int                       @default(1) @map("nombre_fichiers") @db.SmallInt
+  format                 ComptaFecFormat           @default(CSV) @map("format")
+  jeuCaracteres          ComptaFecJeuCaracteres    @default(ASCII) @map("jeu_caracteres")
+  comptabiliteTresorerie Boolean                   @default(false) @map("comptabilite_tresorerie")
+  nombreLignes           Int?                      @map("nombre_lignes")
+  scelle                 Boolean                   @default(false) @map("scelle")
+  empreinteSha256        String?                   @map("empreinte_sha256") @db.VarChar(64)
+  motifGeneration        ComptaFecMotifGeneration  @default(A_LA_DEMANDE) @map("motif_generation")
+  cheminFichier          String?                   @map("chemin_fichier")
+  generePar              String                    @map("genere_par")
+  genereLe               DateTime                  @default(now()) @map("genere_le")
+
+  exercice               ComptaExercice            @relation(fields: [exerciceId], references: [id])
+
+  @@index([tenantId, exerciceId])
+  @@map("compta_fec_export")
+}
+
+// ----------------------------------------------------
+// 11. IMPORT / EXPORT & MIGRATION
+// ----------------------------------------------------
+
+model ComptaConnecteurEchange {
+  id                       String                  @id @default(uuid())
+  tenantId                 String                  @map("tenant_id")
+  nom                      String                  @map("nom") @db.VarChar(100)
+  logicielSourceIdentifie  String?                 @map("logiciel_source_identifie") @db.VarChar(100)
+  typeFlux                 ComptaFluxImportExport  @map("type_flux")
+  actif                    Boolean                 @default(true) @map("actif")
+
+  mappings                 ComptaMappingChamp[]
+  jobs                     ComptaJobImportExport[]
+
+  @@index([tenantId, actif])
+  @@map("compta_connecteur_echange")
+}
+
+model ComptaMappingChamp {
+  id             String                  @id @default(uuid())
+  connecteurId   String                  @map("connecteur_id")
+  champSource    String                  @map("champ_source") @db.VarChar(100)
+  champCible     String                  @map("champ_cible") @db.VarChar(100)
+  transformation String?                 @map("transformation") @db.VarChar(255)
+
+  connecteur     ComptaConnecteurEchange @relation(fields: [connecteurId], references: [id], onDelete: Cascade)
+
+  @@map("compta_mapping_champ")
+}
+
+model ComptaJobImportExport {
+  id                         String                           @id @default(uuid())
+  tenantId                   String                           @map("tenant_id")
+  connecteurId               String?                          @map("connecteur_id")
+  sens                       ComptaSensImportExport           @map("sens")
+  typeFlux                   ComptaFluxImportExport           @map("type_flux")
+  statut                     ComptaJobStatut                  @default(SIMULATION) @map("statut")
+  nombreLignesTraitees       Int?                             @map("nombre_lignes_traitees")
+  nombreAnomalies            Int                              @default(0) @map("nombre_anomalies")
+  exerciceHistoriqueDeclare  Boolean                          @default(false) @map("exercice_historique_declare")
+  fichierSourceChemin        String?                          @map("fichier_source_chemin")
+  lancePar                   String                           @map("lance_par")
+  appliquePar                String?                          @map("applique_par")
+  lanceLe                    DateTime                         @default(now()) @map("lance_le")
+  appliqueLe                 DateTime?                        @map("applique_le")
+
+  connecteur                 ComptaConnecteurEchange?         @relation(fields: [connecteurId], references: [id])
+  lignesPlanComptable        ComptaImportPlanComptableLigne[]
+  lignesEcriture             ComptaImportEcritureLigne[]
+
+  @@index([tenantId, statut])
+  @@map("compta_job_import_export")
+}
+
+model ComptaImportPlanComptableLigne {
+  id                 String                 @id @default(uuid())
+  jobId              String                 @map("job_id")
+  numeroCompteSource String                 @map("numero_compte_source") @db.VarChar(13)
+  libelleSource      String?                @map("libelle_source") @db.VarChar(255)
+  actionPrevue       ComptaActionPrevuePlan @default(CREATION) @map("action_prevue")
+  anomalie           String?                @map("anomalie") @db.VarChar(255)
+
+  job                ComptaJobImportExport  @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  @@index([jobId])
+  @@map("compta_import_plan_comptable_ligne")
+}
+
+model ComptaImportEcritureLigne {
+  id                    String                @id @default(uuid())
+  jobId                 String                @map("job_id")
+  donneesBrutesJson     Json                  @map("donnees_brutes_json")
+  ecritureResultanteJson Json?                @map("ecriture_resultante_json")
+  anomalie              String?               @map("anomalie") @db.VarChar(255)
+  numeroOriginePreserve String?               @map("numero_origine_preserve") @db.VarChar(30)
+
+  job                   ComptaJobImportExport @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  @@index([jobId])
+  @@map("compta_import_ecriture_ligne")
+}
+
+// ----------------------------------------------------
+// 12. INTERFACE M7 (IS)
+// ----------------------------------------------------
+
+model ComptaLectureResultatExterne {
+  id                       String         @id @default(uuid())
+  exerciceId               String         @map("exercice_id")
+  moduleDemandeur          String         @default("M7") @map("module_demandeur") @db.VarChar(10)
+  referenceCalculIsExterne String?        @map("reference_calcul_is_externe") @db.VarChar(100)
+  resultatNetLu            Decimal        @map("resultat_net_lu") @db.Decimal(18, 2)
+  luLe                     DateTime       @default(now()) @map("lu_le")
+
+  exercice                 ComptaExercice @relation(fields: [exerciceId], references: [id], onDelete: Cascade)
+
+  @@index([exerciceId, luLe])
+  @@map("compta_lecture_resultat_externe")
+}
+
+// ----------------------------------------------------
+// 13. PARAMÉTRAGE & AUDIT
+// ----------------------------------------------------
+
+model ComptaParametreEntite {
+  id          String   @id @default(uuid())
+  tenantId    String   @map("tenant_id")
+  cle         String   @map("cle") @db.VarChar(100)
+  valeur      String   @map("valeur")
+  description String?  @map("description") @db.VarChar(255)
+
+  @@unique([tenantId, cle])
+  @@map("compta_parametre_entite")
+}
+
+model ComptaJournalAudit {
+  id          String   @id @default(uuid())
+  tenantId    String   @map("tenant_id")
+  categorie   String   @map("categorie") @db.VarChar(30)
+  action      String   @map("action") @db.VarChar(100)
+  entiteType  String?  @map("entite_type") @db.VarChar(50)
+  entiteId    String?  @map("entite_id")
+  detailsJson Json?    @map("details_json")
+  acteurId    String   @map("acteur_id")
+  horodatage  DateTime @default(now()) @map("horodatage")
+
+  @@index([tenantId, categorie, horodatage])
+  @@index([entiteType, entiteId])
+  @@map("compta_journal_audit")
+}

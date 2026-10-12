@@ -52,6 +52,25 @@ const MANAGE_IMPLIES: Record<string, string[]> = {
     'rh.declarations.manage',
     'rh.accounting.export',
   ],
+  'manage:compta': [
+    'compta.read',
+    'compta.write',
+    'compta.plan.read',
+    'compta.plan.write',
+    'compta.ecritures.read',
+    'compta.ecritures.write',
+    'compta.ecritures.validate',
+    'compta.grandlivre.read',
+    'compta.balance.read',
+    'compta.lettrage.execute',
+    'compta.rapprochement.manage',
+    'compta.cloture.manage',
+    'compta.cloture.execute',
+    'compta.etats.generate',
+    'compta.etats.read',
+    'compta.fec.export',
+    'compta.audit.read',
+  ],
 };
 
 export function expandUserPermissions(permissions: string[]): Set<string> {

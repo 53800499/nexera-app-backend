@@ -23,7 +23,10 @@ export function validationExceptionFactory(errors: ValidationError[]) {
 
   const cleanedMessages = rawMessages.map((msg) => {
     if (msg.includes('should not exist')) {
-      return 'Certains champs envoyés ne sont pas autorisés.';
+      const match = msg.match(/property\s+([^\s]+)\s+should not exist/i);
+      return match
+        ? `Le champ "${match[1]}" n'est pas autorisé par l'API.`
+        : 'Certains champs envoyés ne sont pas autorisés.';
     }
     return msg;
   });

@@ -52,7 +52,7 @@ export class PermissionsGuard implements CanActivate {
     // Admins, Dirigeants et CEOs ont un accès complet à l'ensemble des modules entreprise
     if (
       userRoles.some((r) =>
-        ['ADMIN', 'CEO', 'SUPER_ADMIN', 'admin', 'dirigeant'].includes(r),
+        ['ADMIN', 'CEO', 'SUPER_ADMIN', 'admin', 'dirigeant', 'COMPTABLE', 'comptable', 'CABINET_ADMIN'].includes(r),
       )
     ) {
       return true;

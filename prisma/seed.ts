@@ -111,6 +111,19 @@ const FISCALITE_PERMISSIONS = [
   { code: 'fiscalite.controles.manage', description: 'Suivre les contrôles fiscaux, recours et contentieux' },
 ];
 
+const COMPTA_PERMISSIONS = [
+  { code: 'compta.read', description: 'Consulter le module Comptabilité (journaux, grand livre, balances)' },
+  { code: 'compta.write', description: 'Saisir des écritures et gérer le plan comptable' },
+  { code: 'manage:compta', description: 'Administration complète de la Comptabilité' },
+  { code: 'compta.ecritures.validate', description: 'Valider ou rejeter les écritures comptables (séparation des tâches)' },
+  { code: 'compta.cloture.manage', description: 'Clôturer les périodes et exercices comptables' },
+  { code: 'compta.lettrage.manage', description: 'Lettrer et délettrer les comptes de tiers' },
+  { code: 'compta.rapprochement.manage', description: 'Effectuer et valider les rapprochements bancaires' },
+  { code: 'compta.etats_financiers.generate', description: 'Générer les états financiers (Bilan, Compte de Résultat, Notes)' },
+  { code: 'compta.fec.export', description: 'Générer et exporter le Fichier des Écritures Comptables (Arrêté 1085-C)' },
+  { code: 'compta.audit.read', description: 'Consulter le journal d’audit comptable' },
+];
+
 const ALL_NEW_PERMISSIONS = [
   ...QUOTATION_PERMISSIONS,
   ...ORDER_PERMISSIONS,
@@ -126,11 +139,13 @@ const ALL_NEW_PERMISSIONS = [
   ...RH_PERMISSIONS,
   ...NOTES_FRAIS_PERMISSIONS,
   ...FISCALITE_PERMISSIONS,
+  ...COMPTA_PERMISSIONS,
 ];
 
 import { seedRhData } from './seed-rh';
 import { seedNdfData } from './seed-ndf';
 import { seedFiscaliteData } from './seed-fiscalite';
+import { seedComptaData } from './seed-compta';
 
 const ADMIN_ROLE_CODES = ['ADMIN', 'CEO', 'CABINET_ADMIN'];
 
@@ -311,6 +326,9 @@ async function main() {
 
   // 8. Seed Module 7 Fiscalité (Bénin CGI 2026, barèmes, paramètres, types)
   await seedFiscaliteData(prisma);
+
+  // 9. Seed Module 3 Comptabilité (SYSCOHADA Bénin 2026, plan comptable 443 comptes, journaux, règles)
+  await seedComptaData(prisma);
 
   await prisma.$disconnect();
 }
