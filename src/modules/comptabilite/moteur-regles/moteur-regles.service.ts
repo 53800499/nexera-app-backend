@@ -326,10 +326,15 @@ export class MoteurReglesService {
 
     // A. Événements avec lignes déjà fournies (M4 RH & Paie, M5 Notes de frais, etc.) (EF-023, EF-024)
     if (payload.lignes && Array.isArray(payload.lignes) && payload.lignes.length >= 2) {
-      const codeJournalDefaut = evenement.moduleSource === 'M4' ? 'PAIE' : 'OD';
+      const codeJournalDefaut = payload.codeJournal || (evenement.moduleSource === 'M4' ? 'PAIE' : 'OD');
       let journal = await (this.prisma as any).comptaJournal.findFirst({
         where: { tenantId, codeJournal: codeJournalDefaut },
       });
+      if (!journal && codeJournalDefaut === 'BQ') {
+        journal = await (this.prisma as any).comptaJournal.findFirst({
+          where: { tenantId, typeJournal: 'TRESORERIE_BANQUE' },
+        });
+      }
       if (!journal) {
         journal = await (this.prisma as any).comptaJournal.findFirst({
           where: { tenantId, codeJournal: 'OD' },
@@ -358,10 +363,53 @@ export class MoteurReglesService {
             where: { id: lp.compteId, tenantId },
           });
         } else if (lp.compteNumero || lp.numero) {
-          const num = lp.compteNumero || lp.numero;
+          const num = String(lp.compteNumero || lp.numero).trim();
           compte = await (this.prisma as any).comptaCompte.findFirst({
             where: { numeroCompte: num, tenantId },
           });
+
+          // Recherche par racine de compte si le sous-compte exact n'existe pas
+          if (!compte && num.length >= 3) {
+            compte = await (this.prisma as any).comptaCompte.findFirst({
+              where: {
+                tenantId,
+                numeroCompte: { startsWith: num.substring(0, 3) },
+                statut: 'ACTIF',
+              },
+              orderBy: { numeroCompte: 'asc' },
+            });
+          }
+
+          // Auto-création sécurisée du compte SYSCOHADA si non existant
+          if (!compte) {
+            const defaultLibelle =
+              num.startsWith('443') ? 'État, TVA facturée sur ventes' :
+              num.startsWith('445') ? 'État, TVA récupérable sur achats et services' :
+              num.startsWith('4441') ? 'État, TVA due' :
+              num.startsWith('4449') ? 'État, crédit de TVA à reporter' :
+              num.startsWith('4412') ? 'État, acomptes sur impôts sur les bénéfices' :
+              num.startsWith('444') || num.startsWith('4411') ? 'État, impôts sur les bénéfices (IS)' :
+              num.startsWith('695') ? 'Impôts sur les bénéfices et sociétés' :
+              num.startsWith('891') ? 'Impôt sur le résultat' :
+              num.startsWith('521') ? 'Banque locale' :
+              `Compte ${num}`;
+
+            try {
+              compte = await (this.prisma as any).comptaCompte.create({
+                data: {
+                  tenantId,
+                  numeroCompte: num,
+                  libelle: defaultLibelle,
+                  classe: Number(num[0]) || 4,
+                  statut: 'ACTIF',
+                },
+              });
+            } catch (e) {
+              compte = await (this.prisma as any).comptaCompte.findFirst({
+                where: { numeroCompte: num, tenantId },
+              });
+            }
+          }
         }
 
         if (!compte) {

@@ -69,7 +69,21 @@ export class ComptaIntegrationEventHandler implements OnModuleInit {
       this.handleEvent('M5', 'ndf.report_approved', event),
     );
 
-    this.logger.log('Souscriptions événementielles de comptabilité actives avec succès.');
+    // 6. M7 Fiscalité (TVA & IS) — Liquidation et Règlements (EF-019 / EF-045)
+    this.integrationBus.subscribe('fiscalite.tva.liquidee', (event) =>
+      this.handleEvent('M7', 'fiscalite.tva.liquidee', event),
+    );
+    this.integrationBus.subscribe('fiscalite.tva.payee', (event) =>
+      this.handleEvent('M7', 'fiscalite.tva.payee', event),
+    );
+    this.integrationBus.subscribe('fiscalite.is.valide', (event) =>
+      this.handleEvent('M7', 'fiscalite.is.valide', event),
+    );
+    this.integrationBus.subscribe('fiscalite.is.acompte_paye', (event) =>
+      this.handleEvent('M7', 'fiscalite.is.acompte_paye', event),
+    );
+
+    this.logger.log('Souscriptions événementielles de comptabilité actives avec succès (M1, M2, M4, M5, M7).');
   }
 
   private async handleEvent(

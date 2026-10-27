@@ -23,7 +23,7 @@ describe('MailDeliveryService', () => {
           if (key === 'MAIL_ENABLED') return 'false';
           if (key === 'SMTP_HOST') return '';
           return defaultValue;
-        }),
+        }) as any,
       };
       service = new MailDeliveryService(mockConfigService as ConfigService);
     });
@@ -58,7 +58,7 @@ describe('MailDeliveryService', () => {
             SMTP_FROM: 'noreply@nexera.app',
           };
           return map[key] ?? defaultValue;
-        }),
+        }) as any,
       };
       service = new MailDeliveryService(mockConfigService as ConfigService);
     });

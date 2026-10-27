@@ -11,6 +11,7 @@ import { FecModule } from './fec/fec.module';
 import { ControlesContentieuxModule } from './controles/controles-contentieux.module';
 import { EvenementsFiscauxModule } from './evenements/evenements-fiscaux.module';
 import { FiscaliteDashboardModule } from './dashboard/fiscalite-dashboard.module';
+import { LiaisonComptaModule } from './liaison-compta/liaison-compta.module';
 
 @Module({
   imports: [
@@ -26,6 +27,7 @@ import { FiscaliteDashboardModule } from './dashboard/fiscalite-dashboard.module
     ControlesContentieuxModule,
     EvenementsFiscauxModule,
     FiscaliteDashboardModule,
+    LiaisonComptaModule,
   ],
   exports: [
     ReferentielFiscalModule,
@@ -40,6 +42,7 @@ import { FiscaliteDashboardModule } from './dashboard/fiscalite-dashboard.module
     ControlesContentieuxModule,
     EvenementsFiscauxModule,
     FiscaliteDashboardModule,
+    LiaisonComptaModule,
   ],
 })
 export class FiscaliteModule {}

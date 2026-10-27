@@ -1,14 +1,22 @@
 import {
   BadRequestException,
   Injectable,
+  Logger,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
 import { PrismaService } from '../../../infrastructure/database/prisma.service';
 import { CreateDeclarationTvaDto, CreateLigneTvaDto } from '../dto/fiscalite.dto';
+import { IntegrationEventBus } from '../../../shared/events/integration-event.bus';
 
 @Injectable()
 export class TvaService {
-  constructor(private readonly prisma: PrismaService) {}
+  private readonly logger = new Logger(TvaService.name);
+
+  constructor(
+    private readonly prisma: PrismaService,
+    @Optional() private readonly integrationBus?: IntegrationEventBus,
+  ) {}
 
   async getDeclarations(taxContribuableId: string) {
     return (this.prisma as any).taxDeclarationTva.findMany({
@@ -188,16 +196,178 @@ export class TvaService {
   }
 
   async validerDeclaration(id: string) {
-    return (this.prisma as any).taxDeclarationTva.update({
+    const dec = await (this.prisma as any).taxDeclarationTva.findUnique({
+      where: { id },
+      include: { contribuable: true },
+    });
+    if (!dec) {
+      throw new NotFoundException('Déclaration de TVA introuvable.');
+    }
+
+    const updated = await (this.prisma as any).taxDeclarationTva.update({
       where: { id },
       data: { statut: 'VALIDEE' },
     });
+
+    const tenantId = dec.contribuable?.tenantId;
+    if (this.integrationBus && tenantId) {
+      // Construction des lignes d'OD de liquidation SYSCOHADA (EF-019 / EF-021)
+      const lines: any[] = [];
+
+      // 1. Débit 4431 : Solde de la TVA facturée / collectée
+      if (dec.tvaCollectee > 0) {
+        lines.push({
+          compteNumero: '4431',
+          libelleLigne: `Liquidation TVA ${dec.periode} - Solde TVA facturée collectée`,
+          montantDebit: Math.round(dec.tvaCollectee * 100) / 100,
+          montantCredit: 0,
+        });
+      }
+
+      // 2. Crédit 4451 : Solde de la TVA déductible récupérable
+      if (dec.tvaDeductible > 0) {
+        lines.push({
+          compteNumero: '4451',
+          libelleLigne: `Liquidation TVA ${dec.periode} - Solde TVA déductible récupérable`,
+          montantDebit: 0,
+          montantCredit: Math.round(dec.tvaDeductible * 100) / 100,
+        });
+      }
+
+      // 3. Crédit 4449 : Imputation du crédit antérieur reporté
+      if (dec.creditTvaAnterieur > 0) {
+        lines.push({
+          compteNumero: '4449',
+          libelleLigne: `Liquidation TVA ${dec.periode} - Imputation crédit TVA reporté`,
+          montantDebit: 0,
+          montantCredit: Math.round(dec.creditTvaAnterieur * 100) / 100,
+        });
+      }
+
+      // 4. Si solde net positif ➔ Crédit 4441 (État, TVA due)
+      if (dec.tvaNetteDue > 0) {
+        lines.push({
+          compteNumero: '4441',
+          libelleLigne: `Liquidation TVA ${dec.periode} - Constatation TVA nette due`,
+          montantDebit: 0,
+          montantCredit: Math.round(dec.tvaNetteDue * 100) / 100,
+        });
+      } else if (dec.tvaNetteDue < 0) {
+        // Si solde net négatif ➔ Débit 4449 (État, crédit de TVA à reporter)
+        const creditReporter = Math.abs(dec.tvaNetteDue);
+        lines.push({
+          compteNumero: '4449',
+          libelleLigne: `Liquidation TVA ${dec.periode} - Constatation crédit de TVA à reporter`,
+          montantDebit: Math.round(creditReporter * 100) / 100,
+          montantCredit: 0,
+        });
+      }
+
+      // S'il n'y a aucune ligne (déclaration à 0), éviter émission vide
+      if (lines.length >= 2) {
+        try {
+          await this.integrationBus.publish({
+            eventName: 'fiscalite.tva.liquidee',
+            tenantId,
+            occurredAt: new Date(),
+            payload: {
+              declarationId: dec.id,
+              periode: dec.periode,
+              codeJournal: 'OD',
+              tvaCollectee: dec.tvaCollectee,
+              tvaDeductible: dec.tvaDeductible,
+              creditTvaAnterieur: dec.creditTvaAnterieur || 0,
+              tvaNetteDue: dec.tvaNetteDue,
+              lignes: lines,
+              libelle: `Liquidation TVA Période ${dec.periode}`,
+              reference: `LIQ-TVA-${dec.periode}`,
+              dateEcriture: dec.dateLimiteLegale,
+            },
+          });
+
+          this.logger.log(`[Fiscalité M7] Événement fiscalite.tva.liquidee publié pour période ${dec.periode}.`);
+        } catch (e: any) {
+          this.logger.error(`Erreur publication fiscalite.tva.liquidee: ${e.message}`);
+        }
+      }
+
+      // Enregistrer également dans tax_ecriture_comptable_fiscale
+      try {
+        await (this.prisma as any).taxEcritureComptableFiscale.create({
+          data: {
+            taxContribuableId: dec.taxContribuableId,
+            objetSourceType: 'tax_declaration_tva',
+            objetSourceId: dec.id,
+            dateEcriture: dec.dateLimiteLegale,
+            compteDebitSyscohada: '4431',
+            compteCreditSyscohada: dec.tvaNetteDue > 0 ? '4441' : '4449',
+            montant: Math.abs(dec.tvaNetteDue),
+            statut: 'GENEREE',
+          },
+        });
+      } catch (e) {
+        // Ignore trace duplicates
+      }
+    }
+
+    return updated;
   }
 
   async marquerPayee(id: string) {
-    return (this.prisma as any).taxDeclarationTva.update({
+    const dec = await (this.prisma as any).taxDeclarationTva.findUnique({
+      where: { id },
+      include: { contribuable: true },
+    });
+    if (!dec) {
+      throw new NotFoundException('Déclaration de TVA introuvable.');
+    }
+
+    const updated = await (this.prisma as any).taxDeclarationTva.update({
       where: { id },
       data: { statut: 'PAYEE' },
     });
+
+    const tenantId = dec.contribuable?.tenantId;
+    if (this.integrationBus && tenantId && dec.tvaNetteDue > 0) {
+      const montant = Math.round(dec.tvaNetteDue * 100) / 100;
+      const lines = [
+        {
+          compteNumero: '4441',
+          libelleLigne: `Règlement Trésor Public TVA Période ${dec.periode}`,
+          montantDebit: montant,
+          montantCredit: 0,
+        },
+        {
+          compteNumero: '5211',
+          libelleLigne: `Paiement bancaire TVA Période ${dec.periode}`,
+          montantDebit: 0,
+          montantCredit: montant,
+        },
+      ];
+
+      try {
+        await this.integrationBus.publish({
+          eventName: 'fiscalite.tva.payee',
+          tenantId,
+          occurredAt: new Date(),
+          payload: {
+            declarationId: dec.id,
+            periode: dec.periode,
+            codeJournal: 'BQ',
+            montantTotal: montant,
+            lignes: lines,
+            libelle: `Règlement TVA Période ${dec.periode}`,
+            reference: `PAY-TVA-${dec.periode}`,
+            dateEcriture: new Date(),
+          },
+        });
+
+        this.logger.log(`[Fiscalité M7] Événement fiscalite.tva.payee publié pour période ${dec.periode}.`);
+      } catch (e: any) {
+        this.logger.error(`Erreur publication fiscalite.tva.payee: ${e.message}`);
+      }
+    }
+
+    return updated;
   }
 }

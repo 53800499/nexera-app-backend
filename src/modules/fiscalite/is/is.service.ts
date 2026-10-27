@@ -1,7 +1,9 @@
 import {
   BadRequestException,
   Injectable,
+  Logger,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
 import { PrismaService } from '../../../infrastructure/database/prisma.service';
 import {
@@ -9,10 +11,16 @@ import {
   CreateRetraitementDto,
   SimulerCalculIsDto,
 } from '../dto/fiscalite.dto';
+import { IntegrationEventBus } from '../../../shared/events/integration-event.bus';
 
 @Injectable()
 export class ImpotSocietesService {
-  constructor(private readonly prisma: PrismaService) {}
+  private readonly logger = new Logger(ImpotSocietesService.name);
+
+  constructor(
+    private readonly prisma: PrismaService,
+    @Optional() private readonly integrationBus?: IntegrationEventBus,
+  ) {}
 
   // ----------------------------------------------------
   // EXERCICES FISCAUX
@@ -287,6 +295,9 @@ export class ImpotSocietesService {
       },
     });
 
+    const annee = new Date(ex.dateFin).getFullYear();
+    const montant = Math.round(ex.calculIs.isDu * 100) / 100;
+
     // Créer l'écriture comptable fiscale (EF-045) :
     // Débit 695 Impôt sur le résultat / Crédit 444 État, impôts sur les bénéfices
     const ecriture = await (this.prisma as any).taxEcritureComptableFiscale.create({
@@ -297,13 +308,54 @@ export class ImpotSocietesService {
         dateEcriture: ex.dateFin,
         compteDebitSyscohada: '695',
         compteCreditSyscohada: '444',
-        montant: ex.calculIs.isDu,
+        montant,
         statut: 'GENEREE',
       },
     });
 
+    // Émettre l'événement vers la Comptabilité M3 (EF-019)
+    const tenantId = ex.contribuable?.tenantId;
+    if (this.integrationBus && tenantId && montant > 0) {
+      const lines = [
+        {
+          compteNumero: '695',
+          libelleLigne: `Impôt sur les sociétés (IS) Exercice ${annee}`,
+          montantDebit: montant,
+          montantCredit: 0,
+        },
+        {
+          compteNumero: '444',
+          libelleLigne: `État, impôts sur les bénéfices dus Exercice ${annee}`,
+          montantDebit: 0,
+          montantCredit: montant,
+        },
+      ];
+
+      try {
+        await this.integrationBus.publish({
+          eventName: 'fiscalite.is.valide',
+          tenantId,
+          occurredAt: new Date(),
+          payload: {
+            exerciceFiscalId: ex.id,
+            annee,
+            codeJournal: 'OD',
+            montantTotal: montant,
+            lignes: lines,
+            libelle: `Constatation IS Exercice ${annee}`,
+            reference: `TAX-IS-${annee}`,
+            dateEcriture: ex.dateFin,
+          },
+        });
+
+        this.logger.log(`[Fiscalité M7] Événement fiscalite.is.valide publié pour exercice ${annee}.`);
+      } catch (e: any) {
+        this.logger.error(`Erreur publication fiscalite.is.valide: ${e.message}`);
+      }
+    }
+
     return {
-      message: 'Calcul IS validé et écriture comptable 695/444 générée avec succès.',
+      message: 'Calcul IS validé et écriture comptable d\'impôt (comptes 695 / 444) générée avec succès en comptabilité.',
       ecriture,
       isDu: ex.calculIs.isDu,
     };
@@ -312,6 +364,11 @@ export class ImpotSocietesService {
   async payerAcompte(acompteId: string, montant: number) {
     const acompte = await (this.prisma as any).taxAcompteIs.findUnique({
       where: { id: acompteId },
+      include: {
+        exerciceFiscal: {
+          include: { contribuable: true },
+        },
+      },
     });
     if (!acompte) {
       throw new NotFoundException('Acompte introuvable.');
@@ -320,12 +377,56 @@ export class ImpotSocietesService {
     const montantPayeTotal = (acompte.montantPaye || 0) + montant;
     const estSolde = montantPayeTotal >= acompte.montantDu;
 
-    return (this.prisma as any).taxAcompteIs.update({
+    const updated = await (this.prisma as any).taxAcompteIs.update({
       where: { id: acompteId },
       data: {
         montantPaye: montantPayeTotal,
         statut: estSolde ? 'PAYE' : 'A_PAYER',
       },
     });
+
+    const tenantId = acompte.exerciceFiscal?.contribuable?.tenantId;
+    if (this.integrationBus && tenantId && montant > 0) {
+      const annee = new Date(acompte.dateEcheance).getFullYear();
+      const lines = [
+        {
+          compteNumero: '4412',
+          libelleLigne: `Règlement Acompte d'IS N°${acompte.numeroAcompte} Exercice ${annee}`,
+          montantDebit: Math.round(montant * 100) / 100,
+          montantCredit: 0,
+        },
+        {
+          compteNumero: '5211',
+          libelleLigne: `Paiement bancaire Acompte d'IS N°${acompte.numeroAcompte}`,
+          montantDebit: 0,
+          montantCredit: Math.round(montant * 100) / 100,
+        },
+      ];
+
+      try {
+        await this.integrationBus.publish({
+          eventName: 'fiscalite.is.acompte_paye',
+          tenantId,
+          occurredAt: new Date(),
+          payload: {
+            acompteId: acompte.id,
+            numeroAcompte: acompte.numeroAcompte,
+            annee,
+            codeJournal: 'BQ',
+            montantTotal: Math.round(montant * 100) / 100,
+            lignes: lines,
+            libelle: `Règlement Acompte IS N°${acompte.numeroAcompte} (${annee})`,
+            reference: `ACP-IS-${annee}-${acompte.numeroAcompte}`,
+            dateEcriture: new Date(),
+          },
+        });
+
+        this.logger.log(`[Fiscalité M7] Événement fiscalite.is.acompte_paye publié pour acompte N°${acompte.numeroAcompte}.`);
+      } catch (e: any) {
+        this.logger.error(`Erreur publication fiscalite.is.acompte_paye: ${e.message}`);
+      }
+    }
+
+    return updated;
   }
 }

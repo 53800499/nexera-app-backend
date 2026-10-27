@@ -92,7 +92,7 @@ export class ImpotSocietesController {
 
   @Post('exercices/:id/valider-transmission-m3')
   @Permissions('fiscalite.is.manage')
-  @ApiOperation({ summary: 'Valider l’IS et générer l’écriture comptable retour 695/444 vers M3 (EF-045)' })
+  @ApiOperation({ summary: 'Valider l’IS et générer l’écriture comptable d’impôt (comptes 695 / 444) en comptabilité (EF-045)' })
   async validerTransmission(
     @Param('id') id: string,
     @Request() req: any,
