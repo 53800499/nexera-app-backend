@@ -30,17 +30,31 @@ export class MailDeliveryService {
 
   constructor(private readonly config: ConfigService) {}
 
+  private resolveBrevoApiKey(): string | undefined {
+    const explicitKey = this.config.get<string>('BREVO_API_KEY')?.trim();
+    if (explicitKey) return explicitKey;
+
+    const smtpPass = this.config.get<string>('SMTP_PASS')?.trim();
+    if (smtpPass?.startsWith('xkeysib-')) {
+      return smtpPass;
+    }
+    return undefined;
+  }
+
   isEnabled(): boolean {
     const mailEnabled = this.config.get<string>('MAIL_ENABLED', 'false') === 'true';
     const hasHost = !!this.config.get<string>('SMTP_HOST');
-    const hasBrevoApi = !!this.config.get<string>('BREVO_API_KEY');
+    const hasBrevoApi = !!this.resolveBrevoApiKey();
     const isEthereal = this.config.get<string>('MAIL_DRIVER') === 'ethereal';
     return mailEnabled && (hasHost || hasBrevoApi || isEthereal);
   }
 
   getDriver(): 'smtp' | 'brevo' | 'ethereal' | 'none' {
     if (!this.isEnabled()) return 'none';
-    if (this.config.get<string>('BREVO_API_KEY') || this.config.get<string>('MAIL_DRIVER') === 'brevo') {
+    if (
+      this.config.get<string>('BREVO_API_KEY')?.trim() ||
+      this.config.get<string>('MAIL_DRIVER') === 'brevo'
+    ) {
       return 'brevo';
     }
     if (this.config.get<string>('MAIL_DRIVER') === 'ethereal' || !this.config.get<string>('SMTP_HOST')) {
@@ -207,13 +221,9 @@ export class MailDeliveryService {
       return { sent: false, reason: 'smtp_not_configured' };
     }
 
-    try {
-      const brevoApiKey =
-        this.config.get<string>('BREVO_API_KEY') ||
-        (this.config.get<string>('SMTP_PASS')?.startsWith('xkeysib-')
-          ? this.config.get<string>('SMTP_PASS')
-          : undefined);
+    const brevoApiKey = this.resolveBrevoApiKey();
 
+    try {
       if (brevoApiKey && this.getDriver() === 'brevo') {
         return await this.sendViaBrevoHttp(input, brevoApiKey);
       }
@@ -244,6 +254,20 @@ export class MailDeliveryService {
         previewUrl,
       };
     } catch (err: any) {
+      if (brevoApiKey && this.getDriver() !== 'brevo') {
+        this.logger.warn(
+          `SMTP échoué (${err.message}), basculement automatique vers l'API HTTPS Brevo...`,
+        );
+        try {
+          return await this.sendViaBrevoHttp(input, brevoApiKey);
+        } catch (brevoErr: any) {
+          this.logger.error(
+            `Erreur lors de l'envoi via Brevo HTTPS à ${input.to} : ${brevoErr.message}`,
+          );
+          return { sent: false, reason: brevoErr.message };
+        }
+      }
+
       this.logger.error(`Erreur lors de l'envoi de l'email à ${input.to} : ${err.message}`, err.stack);
       return {
         sent: false,
