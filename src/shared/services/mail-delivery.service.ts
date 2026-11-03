@@ -30,11 +30,17 @@ export class MailDeliveryService {
 
   constructor(private readonly config: ConfigService) {}
 
+  private cleanEnvValue(val?: string): string | undefined {
+    if (!val) return undefined;
+    const cleaned = val.trim().replace(/^["']|["']$/g, '').trim();
+    return cleaned || undefined;
+  }
+
   private resolveBrevoApiKey(): string | undefined {
-    const explicitKey = this.config.get<string>('BREVO_API_KEY')?.trim();
+    const explicitKey = this.cleanEnvValue(this.config.get<string>('BREVO_API_KEY'));
     if (explicitKey) return explicitKey;
 
-    const smtpPass = this.config.get<string>('SMTP_PASS')?.trim();
+    const smtpPass = this.cleanEnvValue(this.config.get<string>('SMTP_PASS'));
     if (smtpPass?.startsWith('xkeysib-')) {
       return smtpPass;
     }
@@ -42,29 +48,33 @@ export class MailDeliveryService {
   }
 
   isEnabled(): boolean {
-    const mailEnabled = this.config.get<string>('MAIL_ENABLED', 'false') === 'true';
-    const hasHost = !!this.config.get<string>('SMTP_HOST');
+    const mailEnabled = this.cleanEnvValue(this.config.get<string>('MAIL_ENABLED', 'false')) === 'true';
+    const hasHost = !!this.cleanEnvValue(this.config.get<string>('SMTP_HOST'));
     const hasBrevoApi = !!this.resolveBrevoApiKey();
-    const isEthereal = this.config.get<string>('MAIL_DRIVER') === 'ethereal';
+    const isEthereal = this.cleanEnvValue(this.config.get<string>('MAIL_DRIVER')) === 'ethereal';
     return mailEnabled && (hasHost || hasBrevoApi || isEthereal);
   }
 
   getDriver(): 'smtp' | 'brevo' | 'ethereal' | 'none' {
     if (!this.isEnabled()) return 'none';
     if (
-      this.config.get<string>('BREVO_API_KEY')?.trim() ||
-      this.config.get<string>('MAIL_DRIVER') === 'brevo'
+      this.resolveBrevoApiKey() ||
+      this.cleanEnvValue(this.config.get<string>('MAIL_DRIVER')) === 'brevo'
     ) {
       return 'brevo';
     }
-    if (this.config.get<string>('MAIL_DRIVER') === 'ethereal' || !this.config.get<string>('SMTP_HOST')) {
+    if (
+      this.cleanEnvValue(this.config.get<string>('MAIL_DRIVER')) === 'ethereal' ||
+      !this.cleanEnvValue(this.config.get<string>('SMTP_HOST'))
+    ) {
       return 'ethereal';
     }
     return 'smtp';
   }
 
   private parseSender(fromRaw: string): { name: string; email: string } {
-    const match = fromRaw.match(/^(.*?)<(.+?)>$/);
+    const cleaned = fromRaw.trim().replace(/^["']|["']$/g, '').trim();
+    const match = cleaned.match(/^(.*?)<(.+?)>$/);
     if (match) {
       return {
         name: match[1].trim().replace(/^["']|["']$/g, '') || 'Nexera ERP',
@@ -73,16 +83,17 @@ export class MailDeliveryService {
     }
     return {
       name: 'Nexera ERP',
-      email: fromRaw.trim(),
+      email: cleaned,
     };
   }
 
   private async sendViaBrevoHttp(input: SendMailInput, apiKey: string): Promise<SendMailResult> {
     const fromRaw =
-      this.config.get<string>('SMTP_FROM') ??
-      this.config.get<string>('SMTP_USER') ??
+      this.cleanEnvValue(this.config.get<string>('SMTP_FROM')) ??
+      this.cleanEnvValue(this.config.get<string>('SMTP_USER')) ??
       'noreply@nexera.erp';
     const sender = this.parseSender(fromRaw);
+    const cleanedKey = this.cleanEnvValue(apiKey) || '';
 
     const payload: Record<string, any> = {
       sender,
@@ -105,7 +116,7 @@ export class MailDeliveryService {
       headers: {
         accept: 'application/json',
         'content-type': 'application/json',
-        'api-key': apiKey.trim(),
+        'api-key': cleanedKey,
       },
       body: JSON.stringify(payload),
     });
@@ -149,18 +160,18 @@ export class MailDeliveryService {
       }
       return {
         transporter: this.etherealTransporter,
-        from: this.config.get<string>('SMTP_FROM') || 'noreply@nexera.erp',
+        from: this.cleanEnvValue(this.config.get<string>('SMTP_FROM')) || 'noreply@nexera.erp',
         driver: 'ethereal',
       };
     }
 
-    const smtpUser = this.config.get<string>('SMTP_USER');
-    const smtpPass = this.config.get<string>('SMTP_PASS');
+    const smtpUser = this.cleanEnvValue(this.config.get<string>('SMTP_USER'));
+    const smtpPass = this.cleanEnvValue(this.config.get<string>('SMTP_PASS'));
 
     const transporter = nodemailer.createTransport({
-      host: this.config.get<string>('SMTP_HOST'),
-      port: Number(this.config.get<string>('SMTP_PORT', '587')),
-      secure: this.config.get<string>('SMTP_SECURE', 'false') === 'true',
+      host: this.cleanEnvValue(this.config.get<string>('SMTP_HOST')),
+      port: Number(this.cleanEnvValue(this.config.get<string>('SMTP_PORT', '587'))),
+      secure: this.cleanEnvValue(this.config.get<string>('SMTP_SECURE', 'false')) === 'true',
       connectionTimeout: 10000,
       greetingTimeout: 10000,
       socketTimeout: 15000,
@@ -168,8 +179,8 @@ export class MailDeliveryService {
     });
 
     const from =
-      this.config.get<string>('SMTP_FROM') ??
-      this.config.get<string>('SMTP_USER') ??
+      this.cleanEnvValue(this.config.get<string>('SMTP_FROM')) ??
+      this.cleanEnvValue(this.config.get<string>('SMTP_USER')) ??
       'noreply@nexera.erp';
 
     return { transporter, from, driver: 'smtp' };
