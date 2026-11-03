@@ -15,3 +15,23 @@ services:
         sync: false
       - key: JWT_REFRESH_SECRET
         sync: false
+      - key: MAIL_ENABLED
+        value: "true"
+      - key: MAIL_DRIVER
+        value: smtp
+      - key: SMTP_HOST
+        value: smtp-relay.brevo.com
+      - key: SMTP_PORT
+        value: "2525"
+      - key: SMTP_SECURE
+        value: "false"
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASS
+        sync: false
+      - key: SMTP_FROM
+        value: "Nexera ERP <bassirousikirou59@gmail.com>"
+      - key: FRONT_APP_URL
+        sync: false
+      - key: PUBLIC_APP_URL
+        sync: false
