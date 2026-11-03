@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import * as bcrypt from 'bcrypt';
 import { PrismaService } from '../../infrastructure/database/prisma.service';
+import { assertDeliverableEmail } from '../../shared/utils/email-validator.util';
 import { SettingsService } from '../settings/settings.service';
 import { AuthMessages } from './constants/auth-messages';
 import { ChangePasswordDto } from './dto/change-password.dto';
@@ -73,8 +74,9 @@ export class ProfileService {
       throw new NotFoundException(AuthMessages.PROFILE_NOT_FOUND);
     }
 
-    if (dto.email) {
-      const normalizedEmail = dto.email.toLowerCase().trim();
+    let normalizedEmail: string | undefined;
+    if (dto.email !== undefined) {
+      normalizedEmail = await assertDeliverableEmail(dto.email);
       if (normalizedEmail !== user.email) {
         const existing = await this.prisma.user.findUnique({
           where: { email: normalizedEmail },
@@ -93,7 +95,7 @@ export class ProfileService {
 
     if (dto.firstName !== undefined) data.firstName = dto.firstName.trim();
     if (dto.lastName !== undefined) data.lastName = dto.lastName.trim();
-    if (dto.email !== undefined) data.email = dto.email.toLowerCase().trim();
+    if (normalizedEmail !== undefined) data.email = normalizedEmail;
 
     const updated = await this.prisma.user.update({
       where: { id: userId },

@@ -5,6 +5,7 @@ import {
 } from '@nestjs/common';
 import * as bcrypt from 'bcrypt';
 import { PrismaService } from '../../infrastructure/database/prisma.service';
+import { assertDeliverableEmail } from '../../shared/utils/email-validator.util';
 import { UserInvitationService } from '../auth/user-invitation.service';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
@@ -42,13 +43,13 @@ export class UsersService {
   };
 
   async create(dto: CreateUserDto, tenantId: string) {
-    const email = dto.email.toLowerCase().trim();
+    const email = await assertDeliverableEmail(dto.email);
     const existingUser = await this.prisma.user.findUnique({
       where: { email },
     });
 
     if (existingUser) {
-      throw new BadRequestException('User already exists');
+      throw new BadRequestException('Un utilisateur existe déjà avec cette adresse e-mail.');
     }
 
     const targetTenantId = dto.tenantId || tenantId;
@@ -135,20 +136,24 @@ export class UsersService {
   async update(id: string, tenantId: string, dto: UpdateUserDto) {
     const user = await this.findOne(id, tenantId);
 
-    if (dto.email && dto.email.toLowerCase().trim() !== user.email) {
-      const existing = await this.prisma.user.findUnique({
-        where: { email: dto.email.toLowerCase().trim() },
-      });
+    let validatedEmail: string | undefined;
+    if (dto.email) {
+      validatedEmail = await assertDeliverableEmail(dto.email);
+      if (validatedEmail !== user.email) {
+        const existing = await this.prisma.user.findUnique({
+          where: { email: validatedEmail },
+        });
 
-      if (existing && existing.id !== id) {
-        throw new BadRequestException('Email already used');
+        if (existing && existing.id !== id) {
+          throw new BadRequestException('Cette adresse e-mail est déjà utilisée.');
+        }
       }
     }
 
     const data: any = {
       firstName: dto.firstName,
       lastName: dto.lastName,
-      email: dto.email ? dto.email.toLowerCase().trim() : undefined,
+      email: validatedEmail,
       isActive: dto.isActive,
     };
 

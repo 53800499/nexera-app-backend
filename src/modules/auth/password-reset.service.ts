@@ -8,6 +8,7 @@ import * as bcrypt from 'bcrypt';
 import { createHash, randomBytes } from 'crypto';
 import { PrismaService } from '../../infrastructure/database/prisma.service';
 import { MailDeliveryService } from '../../shared/services/mail-delivery.service';
+import { assertDeliverableEmail } from '../../shared/utils/email-validator.util';
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
 import { AuthMessages } from './constants/auth-messages';
@@ -23,21 +24,55 @@ export class PasswordResetService {
   ) {}
 
   async forgotPassword(dto: ForgotPasswordDto) {
-    const normalizedEmail = dto.email.toLowerCase().trim();
+    const normalizedEmail = await assertDeliverableEmail(dto.email);
+
     const user = await this.prisma.user.findFirst({
       where: {
         email: { equals: normalizedEmail, mode: 'insensitive' },
       },
     });
 
-    if (!user || !user.isActive) {
-      return { message: AuthMessages.FORGOT_PASSWORD_SENT };
+    if (!user) {
+      throw new BadRequestException(
+        `Aucun compte Nexera n'est associé à l'adresse e-mail « ${normalizedEmail} ». Veuillez vérifier l'orthographe de l'adresse saisie ou créer un compte.`,
+      );
+    }
+
+    if (!user.isActive) {
+      throw new BadRequestException(
+        `Le compte associé à l'adresse e-mail « ${user.email} » est désactivé. Veuillez contacter l'administrateur de votre organisation.`,
+      );
     }
 
     const rawToken = await this.issueResetToken(user.id);
-    await this.sendResetEmail(user, rawToken);
+    const mailResult = await this.sendResetEmail(user, rawToken);
 
-    return { message: AuthMessages.FORGOT_PASSWORD_SENT };
+    if (!mailResult.sent) {
+      throw new BadRequestException(
+        `L'envoi de l'e-mail de réinitialisation vers « ${user.email} » a échoué : ${this.describeMailFailure(mailResult.reason)}`,
+      );
+    }
+
+    return {
+      recipientEmail: user.email,
+      message: `Un e-mail de réinitialisation a été envoyé avec succès à l'adresse ${user.email}. Veuillez consulter votre boîte de réception (ainsi que vos spams).`,
+    };
+  }
+
+  private describeMailFailure(reason?: string): string {
+    if (!reason || reason === 'unknown') {
+      return "Le serveur de messagerie n'a pas pu délivrer le message. Réessayez dans quelques instants.";
+    }
+    if (reason === 'smtp_not_configured') {
+      return "Le service d'envoi d'e-mails n'est pas encore activé ou configuré sur le serveur.";
+    }
+    if (reason.includes('Key not found') || reason.includes('535')) {
+      return "Échec d'authentification auprès du fournisseur d'e-mails (clé API ou identifiants SMTP invalides sur le serveur).";
+    }
+    if (reason.includes('ETIMEDOUT') || reason.includes('ECONNREFUSED') || reason.includes('Connection timeout')) {
+      return 'Délai de connexion dépassé avec le serveur de messagerie. Réessayez dans quelques instants.';
+    }
+    return `Le serveur mail a refusé l'envoi (${reason}). Vérifiez que l'adresse « destinataire » est bien active.`;
   }
 
   async issueResetToken(userId: string): Promise<string> {

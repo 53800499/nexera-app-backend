@@ -9,6 +9,7 @@ import { TenantType } from '@prisma/client';
 import { generateCabinetInviteCode } from '../cabinet/utils/cabinet-invite.util';
 import * as bcrypt from 'bcrypt';
 import { PrismaService } from '../../infrastructure/database/prisma.service';
+import { assertDeliverableEmail } from '../../shared/utils/email-validator.util';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
 import { JwtPayload } from '../../shared/interfaces/jwt-payload.interface';
@@ -30,7 +31,7 @@ export class AuthService {
   ) {}
 
   async register(dto: RegisterDto) {
-    const email = dto.email.toLowerCase().trim();
+    const email = await assertDeliverableEmail(dto.email);
     const { password, firstName, lastName, tenantId, tenantName } = dto;
     const requestedType = dto.tenantType ?? TenantType.company;
 
