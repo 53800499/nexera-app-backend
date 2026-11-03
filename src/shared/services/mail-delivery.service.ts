@@ -33,16 +33,81 @@ export class MailDeliveryService {
   isEnabled(): boolean {
     const mailEnabled = this.config.get<string>('MAIL_ENABLED', 'false') === 'true';
     const hasHost = !!this.config.get<string>('SMTP_HOST');
+    const hasBrevoApi = !!this.config.get<string>('BREVO_API_KEY');
     const isEthereal = this.config.get<string>('MAIL_DRIVER') === 'ethereal';
-    return mailEnabled && (hasHost || isEthereal);
+    return mailEnabled && (hasHost || hasBrevoApi || isEthereal);
   }
 
-  getDriver(): 'smtp' | 'ethereal' | 'none' {
+  getDriver(): 'smtp' | 'brevo' | 'ethereal' | 'none' {
     if (!this.isEnabled()) return 'none';
+    if (this.config.get<string>('BREVO_API_KEY') || this.config.get<string>('MAIL_DRIVER') === 'brevo') {
+      return 'brevo';
+    }
     if (this.config.get<string>('MAIL_DRIVER') === 'ethereal' || !this.config.get<string>('SMTP_HOST')) {
       return 'ethereal';
     }
     return 'smtp';
+  }
+
+  private parseSender(fromRaw: string): { name: string; email: string } {
+    const match = fromRaw.match(/^(.*?)<(.+?)>$/);
+    if (match) {
+      return {
+        name: match[1].trim().replace(/^["']|["']$/g, '') || 'Nexera ERP',
+        email: match[2].trim(),
+      };
+    }
+    return {
+      name: 'Nexera ERP',
+      email: fromRaw.trim(),
+    };
+  }
+
+  private async sendViaBrevoHttp(input: SendMailInput, apiKey: string): Promise<SendMailResult> {
+    const fromRaw =
+      this.config.get<string>('SMTP_FROM') ??
+      this.config.get<string>('SMTP_USER') ??
+      'noreply@nexera.erp';
+    const sender = this.parseSender(fromRaw);
+
+    const payload: Record<string, any> = {
+      sender,
+      to: [{ email: input.to }],
+      subject: input.subject,
+      textContent: input.text,
+      ...(input.html ? { htmlContent: input.html } : {}),
+      ...(input.attachments?.length
+        ? {
+            attachment: input.attachments.map((a) => ({
+              name: a.filename,
+              content: a.content.toString('base64'),
+            })),
+          }
+        : {}),
+    };
+
+    const response = await fetch('https://api.brevo.com/v3/smtp/email', {
+      method: 'POST',
+      headers: {
+        accept: 'application/json',
+        'content-type': 'application/json',
+        'api-key': apiKey.trim(),
+      },
+      body: JSON.stringify(payload),
+    });
+
+    const data: any = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      const errMsg = data?.message || `HTTP ${response.status}`;
+      throw new Error(`Brevo API error: ${errMsg}`);
+    }
+
+    this.logger.log(`Email envoyé avec succès via Brevo HTTPS à ${input.to} (id: ${data?.messageId || 'ok'})`);
+    return {
+      sent: true,
+      messageId: data?.messageId,
+      previewUrl: false,
+    };
   }
 
   private async getOrCreateTransporter(): Promise<{ transporter: any; from: string; driver: string }> {
@@ -82,6 +147,9 @@ export class MailDeliveryService {
       host: this.config.get<string>('SMTP_HOST'),
       port: Number(this.config.get<string>('SMTP_PORT', '587')),
       secure: this.config.get<string>('SMTP_SECURE', 'false') === 'true',
+      connectionTimeout: 10000,
+      greetingTimeout: 10000,
+      socketTimeout: 15000,
       ...(smtpUser ? { auth: { user: smtpUser, pass: smtpPass } } : {}),
     });
 
@@ -102,8 +170,17 @@ export class MailDeliveryService {
       };
     }
 
+    const driver = this.getDriver();
+    if (driver === 'brevo') {
+      return {
+        ok: true,
+        message: 'Passerelle API HTTPS Brevo activée.',
+        driver: 'brevo',
+      };
+    }
+
     try {
-      const { transporter, driver } = await this.getOrCreateTransporter();
+      const { transporter } = await this.getOrCreateTransporter();
       if (typeof transporter.verify === 'function') {
         await transporter.verify();
       }
@@ -117,7 +194,7 @@ export class MailDeliveryService {
       return {
         ok: false,
         message: `Échec de connexion au serveur SMTP : ${err.message}`,
-        driver: this.getDriver(),
+        driver,
       };
     }
   }
@@ -131,6 +208,16 @@ export class MailDeliveryService {
     }
 
     try {
+      const brevoApiKey =
+        this.config.get<string>('BREVO_API_KEY') ||
+        (this.config.get<string>('SMTP_PASS')?.startsWith('xkeysib-')
+          ? this.config.get<string>('SMTP_PASS')
+          : undefined);
+
+      if (brevoApiKey && this.getDriver() === 'brevo') {
+        return await this.sendViaBrevoHttp(input, brevoApiKey);
+      }
+
       const { transporter, from } = await this.getOrCreateTransporter();
 
       const info = await transporter.sendMail({
@@ -192,4 +279,3 @@ export class MailDeliveryService {
     });
   }
 }
-
