@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { DatabaseModule } from '../../infrastructure/database/database.module';
 import { SettingsModule } from '../settings/settings.module';
+import { DocumentsModule } from '../documents/documents.module';
 import { RemindersController } from './reminders.controller';
 import { RemindersService } from './reminders.service';
 import { RemindersScheduler } from './reminders.scheduler';
@@ -10,7 +11,7 @@ import { ReminderEventBus } from './events/reminder-event-bus';
 import { ReminderDomainEventHandler } from './handlers/reminder-domain-event.handler';
 
 @Module({
-  imports: [DatabaseModule, SettingsModule],
+  imports: [DatabaseModule, SettingsModule, DocumentsModule],
   controllers: [RemindersController],
   providers: [
     RemindersService,

@@ -324,31 +324,10 @@ export class MoteurReglesService {
       );
     }
 
-    // A. Événements avec lignes déjà fournies (M4 RH & Paie, M5 Notes de frais, etc.) (EF-023, EF-024)
+    // A. Événements avec lignes déjà fournies (M4 RH & Paie, M5 Notes de frais, M7 Fiscalité, etc.) (EF-023, EF-024)
     if (payload.lignes && Array.isArray(payload.lignes) && payload.lignes.length >= 2) {
       const codeJournalDefaut = payload.codeJournal || (evenement.moduleSource === 'M4' ? 'PAIE' : 'OD');
-      let journal = await (this.prisma as any).comptaJournal.findFirst({
-        where: { tenantId, codeJournal: codeJournalDefaut },
-      });
-      if (!journal && codeJournalDefaut === 'BQ') {
-        journal = await (this.prisma as any).comptaJournal.findFirst({
-          where: { tenantId, typeJournal: 'TRESORERIE_BANQUE' },
-        });
-      }
-      if (!journal) {
-        journal = await (this.prisma as any).comptaJournal.findFirst({
-          where: { tenantId, codeJournal: 'OD' },
-        });
-      }
-      if (!journal) {
-        journal = await (this.prisma as any).comptaJournal.findFirst({
-          where: { tenantId },
-          orderBy: { creeLe: 'asc' },
-        });
-      }
-      if (!journal) {
-        throw new BadRequestException('Aucun journal comptable disponible pour ce flux.');
-      }
+      const journal = await this.resolveJournal(tenantId, codeJournalDefaut);
 
       const lignesPayload = payload.lignes;
       const lignesData: any[] = [];
@@ -364,52 +343,7 @@ export class MoteurReglesService {
           });
         } else if (lp.compteNumero || lp.numero) {
           const num = String(lp.compteNumero || lp.numero).trim();
-          compte = await (this.prisma as any).comptaCompte.findFirst({
-            where: { numeroCompte: num, tenantId },
-          });
-
-          // Recherche par racine de compte si le sous-compte exact n'existe pas
-          if (!compte && num.length >= 3) {
-            compte = await (this.prisma as any).comptaCompte.findFirst({
-              where: {
-                tenantId,
-                numeroCompte: { startsWith: num.substring(0, 3) },
-                statut: 'ACTIF',
-              },
-              orderBy: { numeroCompte: 'asc' },
-            });
-          }
-
-          // Auto-création sécurisée du compte SYSCOHADA si non existant
-          if (!compte) {
-            const defaultLibelle =
-              num.startsWith('443') ? 'État, TVA facturée sur ventes' :
-              num.startsWith('445') ? 'État, TVA récupérable sur achats et services' :
-              num.startsWith('4441') ? 'État, TVA due' :
-              num.startsWith('4449') ? 'État, crédit de TVA à reporter' :
-              num.startsWith('4412') ? 'État, acomptes sur impôts sur les bénéfices' :
-              num.startsWith('444') || num.startsWith('4411') ? 'État, impôts sur les bénéfices (IS)' :
-              num.startsWith('695') ? 'Impôts sur les bénéfices et sociétés' :
-              num.startsWith('891') ? 'Impôt sur le résultat' :
-              num.startsWith('521') ? 'Banque locale' :
-              `Compte ${num}`;
-
-            try {
-              compte = await (this.prisma as any).comptaCompte.create({
-                data: {
-                  tenantId,
-                  numeroCompte: num,
-                  libelle: defaultLibelle,
-                  classe: Number(num[0]) || 4,
-                  statut: 'ACTIF',
-                },
-              });
-            } catch (e) {
-              compte = await (this.prisma as any).comptaCompte.findFirst({
-                where: { numeroCompte: num, tenantId },
-              });
-            }
-          }
+          compte = await this.ensureCompte(tenantId, num, lp.libelleLigne || lp.libelle);
         }
 
         if (!compte) {
@@ -433,7 +367,7 @@ export class MoteurReglesService {
         });
       }
 
-      if (Math.abs(totDebit - totCredit) > 0.01) {
+      if (Math.abs(totDebit - totCredit) > 0.05) {
         throw new BadRequestException(
           `Écriture déséquilibrée : Débit=${totDebit}, Crédit=${totCredit}`,
         );
@@ -466,19 +400,25 @@ export class MoteurReglesService {
       });
     }
 
-    // B. Moteur de règles paramétrable (M1 Ventes, M2 Stocks, M7 Paiements, etc.) (EF-021, EF-022)
+    // B. Moteur de règles paramétrable avec fallback SYSCOHADA (EF-021, EF-022, EF-027)
     const eventAliases: Record<string, string[]> = {
       'payment.recorded': ['payment.recorded', 'payment.received'],
       'payment.received': ['payment.received', 'payment.recorded'],
+      'payment.cancelled': ['payment.cancelled'],
       'payroll.cycle.validated': ['payroll.cycle.validated', 'rh.payroll.cycle_validated'],
       'rh.payroll.cycle_validated': ['rh.payroll.cycle_validated', 'payroll.cycle.validated'],
-      'expense_report.approved': ['expense_report.approved', 'ndf.report_approved'],
-      'ndf.report_approved': ['ndf.report_approved', 'expense_report.approved'],
+      'expense_report.approved': ['expense_report.approved', 'ndf.report_approved', 'ndf.expense_approved'],
+      'ndf.report_approved': ['ndf.report_approved', 'expense_report.approved', 'ndf.expense_approved'],
+      'ndf.expense_approved': ['ndf.expense_approved', 'expense_report.approved', 'ndf.report_approved'],
       'invoice.issued': ['invoice.issued'],
       'credit_note.issued': ['credit_note.issued', 'invoice.cancelled'],
       'invoice.cancelled': ['invoice.cancelled', 'credit_note.issued'],
       'stock.inventory_closed': ['stock.inventory_closed'],
       'stock.valuation_updated': ['stock.valuation_updated', 'stock.valuation_computed'],
+      'fiscalite.tva.liquidee': ['fiscalite.tva.liquidee'],
+      'fiscalite.tva.payee': ['fiscalite.tva.payee'],
+      'fiscalite.is.valide': ['fiscalite.is.valide'],
+      'fiscalite.is.acompte_paye': ['fiscalite.is.acompte_paye'],
     };
     const targetTypes = eventAliases[evenement.typeEvenement] || [evenement.typeEvenement];
 
@@ -496,83 +436,97 @@ export class MoteurReglesService {
       orderBy: [{ niveauSpecificite: 'desc' }, { modifieLe: 'desc' }],
     });
 
-    if (regles.length === 0) {
-      throw new BadRequestException(
-        `Aucune règle de comptabilisation active configurée pour l'événement ${evenement.typeEvenement} (EF-020).`,
-      );
-    }
-
     // Filtrer par critères de spécificité (EF-027)
     let matchingRegle: any = null;
-    for (const r of regles) {
-      let match = true;
-      if (r.critereCategorieArticle && r.critereCategorieArticle !== payload.categorieArticle) {
-        match = false;
+    if (regles.length > 0) {
+      for (const r of regles) {
+        let match = true;
+        if (r.critereCategorieArticle && r.critereCategorieArticle !== payload.categorieArticle) {
+          match = false;
+        }
+        if (
+          r.critereTauxTva !== null &&
+          Number(r.critereTauxTva) !== Number(payload.tauxTva)
+        ) {
+          match = false;
+        }
+        if (r.critereTypeTiers && r.critereTypeTiers !== payload.typeTiers) {
+          match = false;
+        }
+        if (match) {
+          matchingRegle = r;
+          break;
+        }
       }
-      if (
-        r.critereTauxTva !== null &&
-        Number(r.critereTauxTva) !== Number(payload.tauxTva)
-      ) {
-        match = false;
-      }
-      if (r.critereTypeTiers && r.critereTypeTiers !== payload.typeTiers) {
-        match = false;
-      }
-      if (match) {
-        matchingRegle = r;
-        break;
+      if (!matchingRegle) {
+        matchingRegle = regles.find((r: any) => r.niveauSpecificite === 0) || regles[0];
       }
     }
 
-    if (!matchingRegle) {
-      matchingRegle = regles.find((r: any) => r.niveauSpecificite === 0) || regles[0];
+    // Détermination dynamique du journal et des comptes (Règle personnalisée ou Schéma SYSCOHADA par défaut)
+    let journal: any = null;
+    let compteDebitId: string | null = null;
+    let compteCreditId: string | null = null;
+
+    if (matchingRegle) {
+      journal = matchingRegle.journalCible || (matchingRegle.journalCibleId ? await (this.prisma as any).comptaJournal.findUnique({ where: { id: matchingRegle.journalCibleId } }) : null);
+      compteDebitId = matchingRegle.compteDebitId;
+      compteCreditId = matchingRegle.compteCreditId;
     }
 
-    if (!matchingRegle) {
-      throw new BadRequestException('Aucune règle de comptabilisation valide trouvée.');
-    }
+    const typeEvt = evenement.typeEvenement;
+    const isCreditNote = typeEvt.includes('credit_note') || typeEvt.includes('cancelled');
+    const isPayment = typeEvt.includes('payment');
+    const isStock = typeEvt.includes('stock');
+    const isExpense = typeEvt.includes('expense') || typeEvt.includes('ndf');
+    const isPayroll = typeEvt.includes('payroll') || typeEvt.includes('rh');
+    const isFiscalite = typeEvt.includes('fiscalite');
 
-    let journalId = matchingRegle.journalCibleId;
-    let compteDebitId = matchingRegle.compteDebitId;
-    let compteCreditId = matchingRegle.compteCreditId;
+    const preferredJournalCode = matchingRegle?.journalCible?.codeJournal || (
+      typeEvt.includes('invoice') || isCreditNote ? 'VE' :
+      isPayment || typeEvt.includes('payee') || typeEvt.includes('acompte_paye') ? (payload.modePaiement === 'ESPECES' ? 'CA' : 'BQ') :
+      isPayroll ? 'PAIE' :
+      isExpense ? 'NDF' : 'OD'
+    );
 
-    if (!compteDebitId || !compteCreditId) {
-      const fallbackRegle = regles.find((r: any) => r.compteDebitId && r.compteCreditId);
-      if (fallbackRegle) {
-        if (!compteDebitId) compteDebitId = fallbackRegle.compteDebitId;
-        if (!compteCreditId) compteCreditId = fallbackRegle.compteCreditId;
-        if (!journalId) journalId = fallbackRegle.journalCibleId;
-      }
+    if (!journal) {
+      journal = await this.resolveJournal(tenantId, preferredJournalCode);
     }
 
     if (!compteDebitId) {
-      const defNum = evenement.typeEvenement.includes('invoice') ? '411' :
-                     evenement.typeEvenement.includes('payment') ? '521' :
-                     evenement.typeEvenement.includes('payroll') ? '661' :
-                     evenement.typeEvenement.includes('expense') ? '62' : '471';
-      const c = await (this.prisma as any).comptaCompte.findFirst({
-        where: { tenantId, numeroCompte: { startsWith: defNum }, statut: 'ACTIF' },
-        orderBy: { numeroCompte: 'asc' },
-      });
-      if (c) compteDebitId = c.id;
+      const defNum =
+        typeEvt === 'payment.cancelled' ? '4111' :
+        typeEvt.includes('invoice.issued') ? '4111' :
+        isCreditNote ? '7011' :
+        isPayment ? (payload.modePaiement === 'ESPECES' ? '5711' : '5211') :
+        isStock ? '6031' :
+        isPayroll ? '6611' :
+        isExpense ? '6281' :
+        typeEvt.includes('tva.liquidee') ? '4431' :
+        typeEvt.includes('tva.payee') ? '4441' :
+        typeEvt.includes('is.valide') ? '695' :
+        typeEvt.includes('is.acompte_paye') ? '4412' : '4711';
+
+      const c = await this.ensureCompte(tenantId, defNum);
+      compteDebitId = c.id;
     }
 
     if (!compteCreditId) {
-      const defNum = evenement.typeEvenement.includes('invoice') ? '701' :
-                     evenement.typeEvenement.includes('payment') ? '411' :
-                     evenement.typeEvenement.includes('payroll') ? '421' :
-                     evenement.typeEvenement.includes('expense') ? '421' : '471';
-      const c = await (this.prisma as any).comptaCompte.findFirst({
-        where: { tenantId, numeroCompte: { startsWith: defNum }, statut: 'ACTIF' },
-        orderBy: { numeroCompte: 'asc' },
-      });
-      if (c) compteCreditId = c.id;
-    }
+      const defNum =
+        typeEvt === 'payment.cancelled' ? '5211' :
+        typeEvt.includes('invoice.issued') ? '7011' :
+        isCreditNote ? '4111' :
+        isPayment ? '4111' :
+        isStock ? '3111' :
+        isPayroll ? '4211' :
+        isExpense ? '4261' :
+        typeEvt.includes('tva.liquidee') ? '4451' :
+        typeEvt.includes('tva.payee') ? '5211' :
+        typeEvt.includes('is.valide') ? '444' :
+        typeEvt.includes('is.acompte_paye') ? '5211' : '4712';
 
-    if (!compteDebitId || !compteCreditId) {
-      throw new BadRequestException(
-        'Impossible de déterminer les comptes de débit et crédit pour cette règle de comptabilisation.',
-      );
+      const c = await this.ensureCompte(tenantId, defNum);
+      compteCreditId = c.id;
     }
 
     // Extraction des montants
@@ -611,37 +565,74 @@ export class MoteurReglesService {
     if (!montantHt && Array.isArray(payload.lines)) {
       montantHt = payload.lines.reduce((s: number, l: any) => s + Number(l.lineTotalHt || 0), 0);
     }
-    if (!montantHt) {
+    if (!montantHt && (typeEvt.includes('invoice') || isExpense)) {
       montantHt = payload.tauxTva
         ? montantTotal / (1 + Number(payload.tauxTva) / 100)
         : montantTotal;
+    } else if (!montantHt) {
+      montantHt = montantTotal;
     }
     const montantTva = Math.max(0, Math.round((montantTotal - montantHt) * 100) / 100);
 
     const lignes: any[] = [];
-    lignes.push({
-      ordre: 1,
-      compteId: compteDebitId,
-      compteAuxiliaireId: payload.compteAuxiliaireId || null,
-      libelleLigne: payload.libelle || `${evenement.typeEvenement} - ${evenement.referenceExterne}`,
-      montantDebit: Math.round(montantTotal * 100) / 100,
-      montantCredit: 0,
-    });
 
-    if (montantTva > 0.01) {
-      const compteTva = await (this.prisma as any).comptaCompte.findFirst({
-        where: { tenantId, numeroCompte: { startsWith: '443' }, statut: 'ACTIF' },
+    // Schéma pour les avoirs et annulations de factures :
+    // Débit : 7011 Ventes HT
+    // Débit : 4431 TVA facturée régularisée
+    // Crédit : 4111 Clients TTC
+    if (isCreditNote && !typeEvt.includes('payment')) {
+      const compteTva = await this.ensureCompte(tenantId, '4431', 'État, TVA facturée sur ventes');
+      lignes.push({
+        ordre: 1,
+        compteId: compteDebitId, // 7011
+        libelleLigne: `${payload.libelle || evenement.typeEvenement} (HT)`,
+        montantDebit: Math.round(montantHt * 100) / 100,
+        montantCredit: 0,
       });
+
+      if (montantTva > 0.01) {
+        lignes.push({
+          ordre: 2,
+          compteId: compteTva.id, // 4431
+          libelleLigne: 'TVA régularisée sur avoir',
+          montantDebit: montantTva,
+          montantCredit: 0,
+        });
+      }
 
       lignes.push({
-        ordre: 2,
-        compteId: compteCreditId,
-        libelleLigne: `${payload.libelle || evenement.typeEvenement} HT`,
+        ordre: lignes.length + 1,
+        compteId: compteCreditId, // 4111
+        compteAuxiliaireId: payload.compteAuxiliaireId || null,
+        libelleLigne: payload.libelle || `Avoir ${evenement.referenceExterne}`,
         montantDebit: 0,
-        montantCredit: Math.round(montantHt * 100) / 100,
+        montantCredit: Math.round(montantTotal * 100) / 100,
+      });
+    } else {
+      // Schéma standard (Ventes, Paiements, Stocks, NDF, Fiscalité) :
+      // Débit : Tiers / Trésorerie / Charge (TTC)
+      // Crédit : Produit / Tiers (HT)
+      // Crédit : TVA si applicable
+      lignes.push({
+        ordre: 1,
+        compteId: compteDebitId,
+        compteAuxiliaireId: payload.compteAuxiliaireId || null,
+        libelleLigne: payload.libelle || `${evenement.typeEvenement} - ${evenement.referenceExterne}`,
+        montantDebit: Math.round(montantTotal * 100) / 100,
+        montantCredit: 0,
       });
 
-      if (compteTva) {
+      if (montantTva > 0.01 && typeEvt.includes('invoice')) {
+        const compteTva = await this.ensureCompte(tenantId, '4431', 'État, TVA facturée sur ventes');
+
+        lignes.push({
+          ordre: 2,
+          compteId: compteCreditId,
+          libelleLigne: `${payload.libelle || evenement.typeEvenement} HT`,
+          montantDebit: 0,
+          montantCredit: Math.round(montantHt * 100) / 100,
+        });
+
         lignes.push({
           ordre: 3,
           compteId: compteTva.id,
@@ -650,16 +641,14 @@ export class MoteurReglesService {
           montantCredit: montantTva,
         });
       } else {
-        lignes[1].montantCredit = Math.round(montantTotal * 100) / 100;
+        lignes.push({
+          ordre: 2,
+          compteId: compteCreditId,
+          libelleLigne: payload.libelle || `${evenement.typeEvenement} ${evenement.referenceExterne}`,
+          montantDebit: 0,
+          montantCredit: Math.round(montantTotal * 100) / 100,
+        });
       }
-    } else {
-      lignes.push({
-        ordre: 2,
-        compteId: compteCreditId,
-        libelleLigne: payload.libelle || `${evenement.typeEvenement} ${evenement.referenceExterne}`,
-        montantDebit: 0,
-        montantCredit: Math.round(montantTotal * 100) / 100,
-      });
     }
 
     return (this.prisma as any).comptaEcriture.create({
@@ -667,7 +656,7 @@ export class MoteurReglesService {
         tenantId,
         exerciceId: exercice.id,
         periodeId: periode.id,
-        journalId,
+        journalId: journal.id,
         evenementSourceId: evenement.id,
         dateEcriture,
         libelle: payload.libelle || `Opération ${evenement.referenceExterne}`,
@@ -685,5 +674,124 @@ export class MoteurReglesService {
         lignes: { create: lignes },
       },
     });
+  }
+
+  /**
+   * Résolution ou auto-création sécurisée d'un journal comptable (EF-019)
+   */
+  private async resolveJournal(tenantId: string, preferredCode: string) {
+    let journal = await (this.prisma as any).comptaJournal.findFirst({
+      where: { tenantId, codeJournal: preferredCode },
+    });
+    if (!journal && preferredCode === 'BQ') {
+      journal = await (this.prisma as any).comptaJournal.findFirst({
+        where: { tenantId, typeJournal: 'TRESORERIE_BANQUE' },
+      });
+    }
+    if (!journal) {
+      journal = await (this.prisma as any).comptaJournal.findFirst({
+        where: { tenantId, codeJournal: 'OD' },
+      });
+    }
+    if (!journal) {
+      journal = await (this.prisma as any).comptaJournal.findFirst({
+        where: { tenantId },
+        orderBy: { creeLe: 'asc' },
+      });
+    }
+    if (!journal) {
+      try {
+        journal = await (this.prisma as any).comptaJournal.create({
+          data: {
+            tenantId,
+            codeJournal: preferredCode || 'OD',
+            libelle:
+              preferredCode === 'VE' ? 'Journal des Ventes' :
+              preferredCode === 'BQ' ? 'Journal de Banque' :
+              preferredCode === 'CA' ? 'Journal de Caisse' :
+              preferredCode === 'PAIE' ? 'Journal de Paie' :
+              preferredCode === 'NDF' ? 'Journal des Notes de Frais' : 'Opérations Diverses',
+            typeJournal:
+              preferredCode === 'VE' ? 'VENTES' :
+              preferredCode === 'BQ' ? 'TRESORERIE_BANQUE' :
+              preferredCode === 'CA' ? 'TRESORERIE_CAISSE' : 'OPERATIONS_DIVERSES',
+          },
+        });
+      } catch {
+        journal = await (this.prisma as any).comptaJournal.findFirst({ where: { tenantId } });
+      }
+    }
+    if (!journal) {
+      throw new BadRequestException('Aucun journal comptable disponible pour ce flux.');
+    }
+    return journal;
+  }
+
+  /**
+   * Résolution ou auto-création d'un compte SYSCOHADA (EF-027)
+   */
+  private async ensureCompte(tenantId: string, numero: string, defaultLibelle?: string) {
+    let compte = await (this.prisma as any).comptaCompte.findFirst({
+      where: { numeroCompte: numero, tenantId },
+    });
+
+    if (!compte && numero.length >= 3) {
+      compte = await (this.prisma as any).comptaCompte.findFirst({
+        where: {
+          tenantId,
+          numeroCompte: { startsWith: numero.substring(0, 3) },
+          statut: 'ACTIF',
+        },
+        orderBy: { numeroCompte: 'asc' },
+      });
+    }
+
+    if (!compte) {
+      const libelle = defaultLibelle || (
+        numero.startsWith('411') ? 'Clients' :
+        numero.startsWith('701') ? 'Ventes de marchandises / prestations de services' :
+        numero.startsWith('521') ? 'Banque locale' :
+        numero.startsWith('571') ? 'Caisse centrale' :
+        numero.startsWith('603') ? 'Variation des stocks de marchandises' :
+        numero.startsWith('311') ? 'Marchandises' :
+        numero.startsWith('661') ? 'Rémunérations directes versées au personnel' :
+        numero.startsWith('664') ? 'Charges sociales patronales' :
+        numero.startsWith('421') ? 'Personnel, rémunérations dues' :
+        numero.startsWith('431') ? 'Sécurité Sociale (CNSS)' :
+        numero.startsWith('447') ? 'État, impôts et taxes retenus à la source (ITS, VPS)' :
+        numero.startsWith('628') ? 'Frais généraux et déplacements' :
+        numero.startsWith('426') ? 'Personnel, avances et notes de frais à rembourser' :
+        numero.startsWith('443') ? 'État, TVA facturée sur ventes' :
+        numero.startsWith('445') ? 'État, TVA récupérable sur achats et services' :
+        numero.startsWith('4441') ? 'État, TVA due' :
+        numero.startsWith('4449') ? 'État, crédit de TVA à reporter' :
+        numero.startsWith('4412') ? 'État, acomptes sur impôts sur les bénéfices' :
+        numero.startsWith('444') || numero.startsWith('4411') ? 'État, impôts sur les bénéfices (IS)' :
+        numero.startsWith('695') ? 'Impôts sur les bénéfices et sociétés' :
+        numero.startsWith('891') ? 'Impôt sur le résultat' : `Compte ${numero}`
+      );
+
+      try {
+        compte = await (this.prisma as any).comptaCompte.create({
+          data: {
+            tenantId,
+            numeroCompte: numero,
+            libelle,
+            classe: Number(numero[0]) || 4,
+            statut: 'ACTIF',
+          },
+        });
+      } catch {
+        compte = await (this.prisma as any).comptaCompte.findFirst({
+          where: { numeroCompte: numero, tenantId },
+        });
+      }
+    }
+
+    if (!compte) {
+      throw new BadRequestException(`Impossible de résoudre ou créer le compte comptable ${numero}.`);
+    }
+
+    return compte;
   }
 }

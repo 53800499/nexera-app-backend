@@ -120,7 +120,25 @@ export class StockValuationService {
       };
     });
 
-    return this.buildReport(lines, new Date().toISOString().slice(0, 10), opts?.warehouseId);
+    const report = this.buildReport(lines, new Date().toISOString().slice(0, 10), opts?.warehouseId);
+    if (this.integrationBus && report.totals.totalValue > 0) {
+      void this.integrationBus.publish({
+        eventName: STOCK_VALUATION_UPDATED,
+        tenantId,
+        occurredAt: new Date(),
+        payload: {
+          asOf: report.asOf,
+          totalValue: report.totals.totalValue,
+          montantTotal: report.totals.totalValue,
+          lineCount: report.totals.lineCount,
+          warehouseId: report.warehouseId,
+          byMethod: report.totals.byMethod,
+          byWarehouse: report.totals.byWarehouse,
+          byCategory: report.totals.byCategory,
+        },
+      });
+    }
+    return report;
   }
 
   /**

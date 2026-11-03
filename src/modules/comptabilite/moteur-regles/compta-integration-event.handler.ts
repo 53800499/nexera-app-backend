@@ -44,6 +44,9 @@ export class ComptaIntegrationEventHandler implements OnModuleInit {
     this.integrationBus.subscribe('payment.received', (event) =>
       this.handleEvent('M7', 'payment.received', event),
     );
+    this.integrationBus.subscribe('payment.cancelled', (event) =>
+      this.handleEvent('M7', 'payment.cancelled', event),
+    );
 
     // 3. M2 Stocks & Inventaires
     this.integrationBus.subscribe('stock.inventory_closed', (event) =>
@@ -67,6 +70,9 @@ export class ComptaIntegrationEventHandler implements OnModuleInit {
     );
     this.integrationBus.subscribe('ndf.report_approved', (event) =>
       this.handleEvent('M5', 'ndf.report_approved', event),
+    );
+    this.integrationBus.subscribe('ndf.expense_approved', (event) =>
+      this.handleEvent('M5', 'ndf.expense_approved', event),
     );
 
     // 6. M7 Fiscalité (TVA & IS) — Liquidation et Règlements (EF-019 / EF-045)

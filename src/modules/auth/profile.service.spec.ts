@@ -61,14 +61,15 @@ describe('ProfileService', () => {
     expect(result.email).toBe('john@test.com');
     expect(result.tenant).toEqual({
       id: 'tenant-1',
-      name: 'Acme',
+      name: 'Acme SARL',
       type: 'company',
       legalName: 'Acme SARL',
       tradeName: 'Acme',
       primaryCurrency: 'EUR',
       companyEmail: 'contact@acme.com',
+      cabinet: null,
     });
-    expect(result.tenantName).toBe('Acme');
+    expect(result.tenantName).toBe('Acme SARL');
     expect(result.roles).toEqual(['ADMIN']);
     expect(result.permissions).toEqual(['clients.read']);
   });

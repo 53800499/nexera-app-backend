@@ -10,6 +10,7 @@ import { InvoiceMailService } from './services/invoice-mail.service';
 import { DocumentAccessService } from '../documents/services/document-access.service';
 import { EmailTrackingService } from '../documents/services/email-tracking.service';
 import { AuditService } from '../audit/audit.service';
+import { MecefClientService } from './services/mecef-client.service';
 
 describe('InvoicesService', () => {
   let service: InvoicesService;

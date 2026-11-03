@@ -1,6 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import * as nodemailer from 'nodemailer';
+import { MailDeliveryService } from '../../../shared/services/mail-delivery.service';
 import { ReminderLevel } from '../enums/reminder-level.enum';
 import { EmailTemplateService } from '../../settings/services/email-template.service';
 import { EmailTemplateType } from '../../settings/enums/email-template-type.enum';
@@ -26,15 +25,12 @@ export class ReminderNotificationService {
   private readonly logger = new Logger(ReminderNotificationService.name);
 
   constructor(
-    private readonly config: ConfigService,
+    private readonly mail: MailDeliveryService,
     private readonly emailTemplateService: EmailTemplateService,
   ) {}
 
   isEnabled(): boolean {
-    return (
-      this.config.get<string>('MAIL_ENABLED', 'false') === 'true' &&
-      !!this.config.get<string>('SMTP_HOST')
-    );
+    return this.mail.isEnabled();
   }
 
   async buildAutoEmail(
@@ -57,28 +53,11 @@ export class ReminderNotificationService {
       return { sent: false, reason: 'smtp_not_configured' };
     }
 
-    const smtpUser = this.config.get<string>('SMTP_USER');
-    const smtpPass = this.config.get<string>('SMTP_PASS');
-
-    const transporter = nodemailer.createTransport({
-      host: this.config.get<string>('SMTP_HOST'),
-      port: Number(this.config.get<string>('SMTP_PORT', '587')),
-      secure: this.config.get<string>('SMTP_SECURE', 'false') === 'true',
-      ...(smtpUser ? { auth: { user: smtpUser, pass: smtpPass } } : {}),
-    });
-
-    const from =
-      this.config.get<string>('SMTP_FROM') ??
-      this.config.get<string>('SMTP_USER');
-
-    await transporter.sendMail({
-      from,
+    return this.mail.send({
       to: input.to,
-      cc: input.cc?.length ? input.cc.join(', ') : undefined,
       subject: input.subject,
       text: input.body,
     });
-
-    return { sent: true };
   }
 }
+

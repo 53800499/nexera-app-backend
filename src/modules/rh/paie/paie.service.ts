@@ -666,37 +666,109 @@ export class PaieService {
       champsModifiesJson: { statut: 'VALIDE' },
     });
 
-    // Convergence M7 Fiscalité : calcul des totaux et émission de l'événement
+    // Convergence M7 Fiscalité & M3 Comptabilité : calcul des totaux et émission de l'événement
     try {
       const totals = await this.prisma.rhBulletinPaie.aggregate({
         where: { cyclePaieId, tenantId },
         _sum: {
+          totalSalaireBrut: true,
+          netAPayer: true,
           montantImpotSalaire: true,
           montantVpsPatronale: true,
           montantCnssSalariale: true,
           montantCnssPatronale: true,
+          totalChargesPatronales: true,
         },
         _count: true,
       });
 
+      const totalBrut = Math.round((totals._sum.totalSalaireBrut || 0) * 100) / 100;
+      const totalNet = Math.round((totals._sum.netAPayer || 0) * 100) / 100;
+      const totalIts = Math.round((totals._sum.montantImpotSalaire || 0) * 100) / 100;
+      const totalVps = Math.round((totals._sum.montantVpsPatronale || 0) * 100) / 100;
+      const totalCnssPat = Math.round((totals._sum.montantCnssPatronale || 0) * 100) / 100;
+      const totalCnssSal = Math.round((totals._sum.montantCnssSalariale || 0) * 100) / 100;
+      const totalCnss = Math.round((totalCnssSal + totalCnssPat) * 100) / 100;
+      const totalChargesPatronales = Math.round((totalCnssPat + totalVps) * 100) / 100;
+      const totalImpots = Math.round((totalIts + totalVps) * 100) / 100;
+
+      // Équilibrage strict SYSCOHADA (EF-019 / EF-023) :
+      // Débit : 6611 Salaires bruts + 6641 Charges patronales
+      // Crédit : 4211 Net à payer + 4311 CNSS globale + 4471 Impôts (ITS+VPS)
+      const debitTotal = Math.round((totalBrut + totalChargesPatronales) * 100) / 100;
+      const creditTotalInitial = Math.round((totalNet + totalCnss + totalImpots) * 100) / 100;
+      const ecartArrondi = Math.round((debitTotal - creditTotalInitial) * 100) / 100;
+      const netAjuste = Math.round((totalNet + ecartArrondi) * 100) / 100;
+
+      const lines = [
+        {
+          compteNumero: '6611',
+          libelleLigne: `Salaires bruts - Cycle Paie ${cycle.annee}-${String(cycle.mois).padStart(2, '0')}`,
+          montantDebit: totalBrut,
+          montantCredit: 0,
+        },
+        {
+          compteNumero: '6641',
+          libelleLigne: `Charges sociales patronales (CNSS & VPS)`,
+          montantDebit: totalChargesPatronales,
+          montantCredit: 0,
+        },
+        {
+          compteNumero: '4211',
+          libelleLigne: `Personnel, rémunérations nettes dues`,
+          montantDebit: 0,
+          montantCredit: netAjuste,
+        },
+        {
+          compteNumero: '4311',
+          libelleLigne: `Sécurité Sociale (CNSS Ouvrière & Patronale)`,
+          montantDebit: 0,
+          montantCredit: totalCnss,
+        },
+        {
+          compteNumero: '4471',
+          libelleLigne: `État, impôts et taxes retenus (ITS & VPS)`,
+          montantDebit: 0,
+          montantCredit: totalImpots,
+        },
+      ];
+
       if (this.integrationBus) {
+        const payload = {
+          cyclePaieId,
+          annee: cycle.annee,
+          mois: cycle.mois,
+          codeJournal: 'PAIE',
+          reference: `PAIE-${cycle.annee}-${String(cycle.mois).padStart(2, '0')}`,
+          libelle: `Validation Cycle de Paie ${cycle.annee}-${String(cycle.mois).padStart(2, '0')}`,
+          montantTotal: totalBrut,
+          totalBrut,
+          totalNet: netAjuste,
+          totalIts,
+          totalVps,
+          totalCnss,
+          totalCnssPatronale: totalCnssPat,
+          totalChargesPatronales,
+          nombreBulletins: totals._count,
+          lignes: lines,
+        };
+
         await this.integrationBus.publish({
           eventName: 'payroll.cycle.validated',
           tenantId,
           occurredAt: new Date(),
-          payload: {
-            cyclePaieId,
-            annee: cycle.annee,
-            mois: cycle.mois,
-            totalIts: totals._sum.montantImpotSalaire || 0,
-            totalVps: totals._sum.montantVpsPatronale || 0,
-            totalCnss: (totals._sum.montantCnssSalariale || 0) + (totals._sum.montantCnssPatronale || 0),
-            nombreBulletins: totals._count,
-          },
+          payload,
+        });
+
+        await this.integrationBus.publish({
+          eventName: 'rh.payroll.cycle_validated',
+          tenantId,
+          occurredAt: new Date(),
+          payload,
         });
       }
     } catch (busErr) {
-      console.error('Erreur publication événement payroll.cycle.validated vers M7 Fiscalité :', busErr);
+      console.error('Erreur publication événement payroll.cycle.validated vers M7 Fiscalité et M3 Comptabilité :', busErr);
     }
 
     return updated;

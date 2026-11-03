@@ -369,32 +369,95 @@ export class RapportsFraisService {
       },
     });
 
-    // Convergence M7 Fiscalité : émission de l'événement sur le bus
+    // Convergence M7 Fiscalité & M3 Comptabilité : émission des événements sur le bus
     try {
       if (this.integrationBus) {
+        const depensesMappees = (rapport.depenses || []).map((dep: any) => {
+          const ttc = Number(dep.montantDeviseReference || 0);
+          const tva = Number(dep.montantTva || 0);
+          const ht = ttc - tva;
+          return {
+            id: dep.id,
+            montantTtc: ttc,
+            montantTva: tva,
+            montantHt: ht,
+            dateDepense: dep.dateDepense,
+            fournisseurLibelle: dep.fournisseurLibelle,
+            categorieLibelle: dep.categorieDepense?.libelle,
+          };
+        });
+
+        const totalTtc = Number(rapport.montantTotal || 0);
+        const totalTva = depensesMappees.reduce((sum, d) => sum + d.montantTva, 0);
+        const totalHt = Math.max(0, totalTtc - totalTva);
+
+        const lines: any[] = [];
+        if (totalTva > 0.01) {
+          lines.push(
+            {
+              compteNumero: '6281',
+              libelleLigne: `Charges de missions & déplacements - ${rapport.numeroRapport} (HT)`,
+              montantDebit: Math.round(totalHt * 100) / 100,
+              montantCredit: 0,
+            },
+            {
+              compteNumero: '4454',
+              libelleLigne: `TVA déductible sur services et déplacements`,
+              montantDebit: Math.round(totalTva * 100) / 100,
+              montantCredit: 0,
+            },
+            {
+              compteNumero: '4261',
+              libelleLigne: `Personnel, avances & notes de frais dues - ${rapport.numeroRapport}`,
+              montantDebit: 0,
+              montantCredit: Math.round(totalTtc * 100) / 100,
+            },
+          );
+        } else {
+          lines.push(
+            {
+              compteNumero: '6281',
+              libelleLigne: `Charges de missions & déplacements - ${rapport.numeroRapport}`,
+              montantDebit: Math.round(totalTtc * 100) / 100,
+              montantCredit: 0,
+            },
+            {
+              compteNumero: '4261',
+              libelleLigne: `Personnel, avances & notes de frais dues - ${rapport.numeroRapport}`,
+              montantDebit: 0,
+              montantCredit: Math.round(totalTtc * 100) / 100,
+            },
+          );
+        }
+
+        const payload = {
+          rapportFraisId: id,
+          numeroRapport: rapport.numeroRapport,
+          employeId: rapport.employeRefId,
+          montantTotal: totalTtc,
+          codeJournal: 'NDF',
+          reference: rapport.numeroRapport,
+          libelle: `Note de frais ${rapport.numeroRapport}`,
+          depenses: depensesMappees,
+          lignes: lines,
+        };
+
         await this.integrationBus.publish({
           eventName: 'expense_report.approved',
           tenantId,
           occurredAt: new Date(),
-          payload: {
-            rapportFraisId: id,
-            numeroRapport: rapport.numeroRapport,
-            employeId: rapport.employeRefId,
-            montantTotal: rapport.montantTotal,
-            depenses: (rapport.depenses || []).map((dep: any) => ({
-              id: dep.id,
-              montantTtc: dep.montantDeviseReference,
-              montantTva: dep.montantTva || 0,
-              montantHt: dep.montantDeviseReference - (dep.montantTva || 0),
-              dateDepense: dep.dateDepense,
-              fournisseurLibelle: dep.fournisseurLibelle,
-              categorieLibelle: dep.categorieDepense?.libelle,
-            })),
-          },
+          payload,
+        });
+
+        await this.integrationBus.publish({
+          eventName: 'ndf.report_approved',
+          tenantId,
+          occurredAt: new Date(),
+          payload,
         });
       }
     } catch (busErr) {
-      console.error('Erreur publication événement expense_report.approved vers M7 Fiscalité :', busErr);
+      console.error('Erreur publication événement expense_report.approved vers M7 Fiscalité et M3 Comptabilité :', busErr);
     }
 
     return this.getRapportById(tenantId, id);

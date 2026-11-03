@@ -1,6 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import * as nodemailer from 'nodemailer';
+import { MailDeliveryService } from '../../../shared/services/mail-delivery.service';
 import { EmailTemplateService } from '../../settings/services/email-template.service';
 import { EmailTemplateType } from '../../settings/enums/email-template-type.enum';
 
@@ -9,15 +8,12 @@ export class RecurringInvoiceNotificationService {
   private readonly logger = new Logger(RecurringInvoiceNotificationService.name);
 
   constructor(
-    private readonly config: ConfigService,
+    private readonly mail: MailDeliveryService,
     private readonly emailTemplateService: EmailTemplateService,
   ) {}
 
   isEnabled(): boolean {
-    return (
-      this.config.get<string>('MAIL_ENABLED', 'false') === 'true' &&
-      !!this.config.get<string>('SMTP_HOST')
-    );
+    return this.mail.isEnabled();
   }
 
   async notifyDraftReady(input: {
@@ -49,27 +45,11 @@ export class RecurringInvoiceNotificationService {
       },
     );
 
-    const transporter = nodemailer.createTransport({
-      host: this.config.get<string>('SMTP_HOST'),
-      port: Number(this.config.get<string>('SMTP_PORT', '587')),
-      secure: this.config.get<string>('SMTP_SECURE', 'false') === 'true',
-      auth: {
-        user: this.config.get<string>('SMTP_USER'),
-        pass: this.config.get<string>('SMTP_PASS'),
-      },
-    });
-
-    const from =
-      this.config.get<string>('SMTP_FROM') ??
-      this.config.get<string>('SMTP_USER');
-
-    await transporter.sendMail({
-      from,
+    return this.mail.send({
       to: input.to,
       subject: mailContent.subject,
       text: mailContent.body,
     });
-
-    return { sent: true };
   }
 }
+

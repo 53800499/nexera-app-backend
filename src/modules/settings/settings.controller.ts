@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Delete,
@@ -38,12 +39,17 @@ import {
 import { UpdateReminderSettingsDto } from '../reminders/dto/update-reminder-settings.dto';
 import { ReminderSettingsResponseDto } from '../reminders/dto/reminder-response.dto';
 
+import { MailDeliveryService } from '../../shared/services/mail-delivery.service';
+
 @ApiTags('settings')
 @ApiBearerAuth('access-token')
 @Controller('settings')
 @UseGuards(JwtAuthGuard, PermissionsGuard)
 export class SettingsController {
-  constructor(private readonly settingsService: SettingsService) {}
+  constructor(
+    private readonly settingsService: SettingsService,
+    private readonly mailDeliveryService: MailDeliveryService,
+  ) {}
 
   @Get()
   @Permissions('settings.read')
@@ -267,5 +273,26 @@ export class SettingsController {
     @Request() req: { user: { tenantId: string } },
   ) {
     return this.settingsService.updateReminderSettings(req.user.tenantId, dto);
+  }
+
+  @Get('mail/status')
+  @Permissions('settings.read')
+  @ApiOperation({ summary: 'Vérifier l\'état du serveur SMTP et la passerelle e-mail' })
+  checkMailStatus() {
+    return this.mailDeliveryService.verifyConnection();
+  }
+
+  @Post('mail/test')
+  @Permissions('manage:settings')
+  @ApiOperation({ summary: 'Envoyer un email de test pour valider la configuration' })
+  sendTestEmail(
+    @Body() dto: { to?: string },
+    @Request() req: { user: { email?: string } },
+  ) {
+    const to = dto.to || req.user?.email;
+    if (!to) {
+      throw new BadRequestException('Veuillez renseigner une adresse email destinataire.');
+    }
+    return this.mailDeliveryService.sendTestEmail(to);
   }
 }

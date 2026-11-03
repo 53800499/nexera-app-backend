@@ -78,12 +78,40 @@ export class PasswordResetService {
         to: user.email,
         subject: 'Réinitialisation de votre mot de passe Nexera',
         text: `Bonjour ${user.firstName},\n\nPour réinitialiser votre mot de passe, ouvrez ce lien (valide ${expiryMinutes} minutes) :\n${resetUrl}\n\nSi vous n'êtes pas à l'origine de cette demande, ignorez cet email.`,
-        html: `<p>Bonjour ${user.firstName},</p><p><a href="${resetUrl}">Réinitialiser mon mot de passe</a></p><p>Ce lien expire dans ${expiryMinutes} minutes.</p>`,
+        html: `
+          <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 24px; border: 1px solid #e2e8f0; border-radius: 12px; background-color: #ffffff;">
+            <div style="margin-bottom: 24px; text-align: center;">
+              <h2 style="color: #1e293b; margin: 0; font-size: 20px;">Nexera ERP</h2>
+              <p style="color: #64748b; font-size: 13px; margin: 4px 0 0 0;">Sécurité et gestion des accès</p>
+            </div>
+            <p style="color: #334155; font-size: 14px; line-height: 1.6;">Bonjour <strong>${user.firstName}</strong>,</p>
+            <p style="color: #334155; font-size: 14px; line-height: 1.6;">
+              Une demande de réinitialisation de mot de passe a été initiée pour votre compte. Cliquez sur le bouton ci-dessous pour choisir votre nouveau mot de passe :
+            </p>
+            <div style="text-align: center; margin: 28px 0;">
+              <a href="${resetUrl}" style="background-color: #2563eb; color: #ffffff; padding: 12px 24px; text-decoration: none; border-radius: 8px; font-weight: 600; font-size: 14px; display: inline-block;">
+                Réinitialiser mon mot de passe
+              </a>
+            </div>
+            <p style="color: #64748b; font-size: 12px; line-height: 1.5;">
+              Ce lien est sécurisé et expire dans <strong>${expiryMinutes} minutes</strong>. Si le bouton ne fonctionne pas, copiez-collez l'adresse suivante dans votre navigateur :<br/>
+              <a href="${resetUrl}" style="color: #2563eb; word-break: break-all;">${resetUrl}</a>
+            </p>
+            <hr style="border: none; border-top: 1px solid #e2e8f0; margin: 24px 0;" />
+            <p style="color: #94a3b8; font-size: 11px; margin: 0;">
+              Si vous n'êtes pas à l'origine de cette demande, vous pouvez ignorer cet e-mail en toute sécurité. Votre mot de passe actuel restera inchangé.
+            </p>
+          </div>
+        `,
       });
 
       if (!mailResult.sent) {
         this.logger.warn(
           `Password reset email not sent to ${user.email}: ${mailResult.reason ?? 'unknown'}`,
+        );
+      } else {
+        this.logger.log(
+          `Password reset email successfully sent to ${user.email} (preview: ${mailResult.previewUrl || resetUrl})`,
         );
       }
 

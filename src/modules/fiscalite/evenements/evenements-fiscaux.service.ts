@@ -13,12 +13,28 @@ export class EvenementsFiscauxService implements OnModuleInit {
 
   onModuleInit() {
     if (this.integrationBus) {
-      // Flux 1 : Ventes & Facturation (M2 Gestion Commerciale)
+      // Flux 1 : Ventes & Facturation (M1 Facturation / M2 Gestion Commerciale)
       this.integrationBus.subscribe('invoice.issued', async (event: any) => {
         try {
           await this.onInvoiceIssued(event);
         } catch (err: any) {
-          this.logger.error(`Erreur traitement fiscal facture M2 : ${err.message}`);
+          this.logger.error(`Erreur traitement fiscal facture M1/M2 : ${err.message}`);
+        }
+      });
+
+      this.integrationBus.subscribe('credit_note.issued', async (event: any) => {
+        try {
+          await this.onCreditNoteIssued(event);
+        } catch (err: any) {
+          this.logger.error(`Erreur traitement fiscal avoir client M1 : ${err.message}`);
+        }
+      });
+
+      this.integrationBus.subscribe('invoice.cancelled', async (event: any) => {
+        try {
+          await this.onInvoiceCancelled(event);
+        } catch (err: any) {
+          this.logger.error(`Erreur traitement fiscal annulation facture M1 : ${err.message}`);
         }
       });
 
@@ -31,6 +47,14 @@ export class EvenementsFiscauxService implements OnModuleInit {
         }
       });
 
+      this.integrationBus.subscribe('rh.payroll.cycle_validated', async (event: any) => {
+        try {
+          await this.onPayrollCycleValidated(event);
+        } catch (err: any) {
+          this.logger.error(`Erreur consolidation paie M4 (alias) : ${err.message}`);
+        }
+      });
+
       // Flux 3 : Notes de Frais Approuvées & TVA Récupérable (M5 Notes de Frais)
       this.integrationBus.subscribe('expense_report.approved', async (event: any) => {
         try {
@@ -40,7 +64,23 @@ export class EvenementsFiscauxService implements OnModuleInit {
         }
       });
 
-      this.logger.log('EvenementsFiscauxService connecté au bus (invoice.issued, payroll.cycle.validated, expense_report.approved).');
+      this.integrationBus.subscribe('ndf.report_approved', async (event: any) => {
+        try {
+          await this.onExpenseReportApproved(event);
+        } catch (err: any) {
+          this.logger.error(`Erreur traitement fiscal note de frais M5 (alias) : ${err.message}`);
+        }
+      });
+
+      this.integrationBus.subscribe('ndf.expense_approved', async (event: any) => {
+        try {
+          await this.onExpenseReportApproved(event);
+        } catch (err: any) {
+          this.logger.error(`Erreur traitement fiscal note de frais M5 (alias) : ${err.message}`);
+        }
+      });
+
+      this.logger.log('EvenementsFiscauxService connecté à tous les flux (M1, M4, M5).');
     }
   }
 
@@ -341,6 +381,173 @@ export class EvenementsFiscauxService implements OnModuleInit {
   }
 
   /**
+   * Traitement Avoir Client M1 : enregistrement régularisation TVA
+   */
+  private async onCreditNoteIssued(event: any) {
+    const { tenantId, payload } = event;
+    const creditNoteId = payload?.creditNoteId;
+    if (!creditNoteId) return;
+
+    let contribuable = await (this.prisma as any).taxContribuable.findFirst({
+      where: { tenantId },
+    });
+    if (!contribuable) {
+      contribuable = await (this.prisma as any).taxContribuable.findFirst();
+    }
+    if (!contribuable) return;
+
+    const dateEvt = payload.issueDate ? new Date(payload.issueDate) : new Date();
+
+    const creditNote = await (this.prisma as any).creditNote?.findUnique({
+      where: { id: creditNoteId },
+    }).catch(() => null);
+
+    const totalHt = creditNote?.totalHt || payload.totalHt || (payload.lines ? payload.lines.reduce((s: number, l: any) => s + Number(l.lineTotalHt || 0), 0) : 0);
+    const totalTax = creditNote?.totalTax || payload.totalTax || (payload.lines ? payload.lines.reduce((s: number, l: any) => s + Number(l.taxAmount || 0), 0) : 0);
+
+    const evt = await this.capturerEvenement({
+      moduleSource: 'M1_FACTURATION',
+      typeEvenement: 'AVOIR_VALIDE',
+      referenceObjetSource: creditNoteId,
+      taxContribuableId: contribuable.id,
+      dateEvenement: dateEvt,
+      montantHt: -Math.abs(totalHt),
+      montantTaxe: -Math.abs(totalTax),
+      natureFiscale: 'REGULARISATION_AVOIR_VENTE',
+    });
+
+    await this.integrerAvoirDansTva(contribuable.id, {
+      id: creditNoteId,
+      number: payload.creditNoteNumber || `AVOIR-${creditNoteId.slice(0, 8)}`,
+      issueDate: dateEvt,
+      totalHt: -Math.abs(totalHt),
+      totalTax: -Math.abs(totalTax),
+    }, evt.id);
+
+    this.logger.log(
+      `[Fiscalité M7] Avoir client ${payload.creditNoteNumber || creditNoteId} intégré dans la déclaration TVA (Régularisation TVA: -${Math.abs(totalTax)} FCFA)`,
+    );
+  }
+
+  /**
+   * Traitement Annulation Facture M1
+   */
+  private async onInvoiceCancelled(event: any) {
+    const { tenantId, payload } = event;
+    const invoiceId = payload?.originalInvoiceId || payload?.invoiceId;
+    if (!invoiceId) return;
+
+    let contribuable = await (this.prisma as any).taxContribuable.findFirst({
+      where: { tenantId },
+    });
+    if (!contribuable) {
+      contribuable = await (this.prisma as any).taxContribuable.findFirst();
+    }
+    if (!contribuable) return;
+
+    const invoice = await (this.prisma as any).invoice.findUnique({
+      where: { id: invoiceId },
+    });
+    if (!invoice) return;
+
+    const dateEvt = new Date();
+
+    const evt = await this.capturerEvenement({
+      moduleSource: 'M1_FACTURATION',
+      typeEvenement: 'VENTE_ANNULEE',
+      referenceObjetSource: invoiceId,
+      taxContribuableId: contribuable.id,
+      dateEvenement: dateEvt,
+      montantHt: -Math.abs(invoice.totalHt || 0),
+      montantTaxe: -Math.abs(invoice.totalTax || 0),
+      natureFiscale: 'ANNULATION_FACTURE_VENTE',
+    });
+
+    await this.integrerAvoirDansTva(contribuable.id, {
+      id: invoiceId,
+      number: `ANNUL-${invoice.number}`,
+      issueDate: dateEvt,
+      totalHt: -Math.abs(invoice.totalHt || 0),
+      totalTax: -Math.abs(invoice.totalTax || 0),
+    }, evt.id);
+
+    this.logger.log(
+      `[Fiscalité M7] Annulation facture ${invoice.number} prise en compte dans la TVA (Déduction TVA: -${Math.abs(invoice.totalTax || 0)} FCFA)`,
+    );
+  }
+
+  /**
+   * Intégration d'un avoir client ou annulation dans la déclaration de TVA
+   */
+  private async integrerAvoirDansTva(
+    taxContribuableId: string,
+    document: any,
+    evenementSourceId: string,
+  ) {
+    const issueDate = document.issueDate ? new Date(document.issueDate) : new Date();
+    const year = issueDate.getFullYear();
+    const month = String(issueDate.getMonth() + 1).padStart(2, '0');
+    const periode = `${year}-${month}`;
+
+    const nextMonth = issueDate.getMonth() + 1 === 12 ? 1 : issueDate.getMonth() + 2;
+    const nextYear = issueDate.getMonth() + 1 === 12 ? year + 1 : year;
+    const dateLimiteLegale = new Date(
+      `${nextYear}-${String(nextMonth).padStart(2, '0')}-20T00:00:00.000Z`,
+    );
+
+    let declaration = await (this.prisma as any).taxDeclarationTva.findUnique({
+      where: {
+        taxContribuableId_periode: {
+          taxContribuableId,
+          periode,
+        },
+      },
+    });
+
+    if (!declaration) {
+      declaration = await (this.prisma as any).taxDeclarationTva.create({
+        data: {
+          taxContribuableId,
+          periode,
+          dateLimiteLegale,
+          creditTvaAnterieur: 0,
+          tvaCollectee: 0,
+          tvaDeductible: 0,
+          tvaNetteDue: 0,
+          statut: 'BROUILLON',
+        },
+      });
+    }
+
+    const existingLine = await (this.prisma as any).taxDeclarationTvaLigne.findFirst({
+      where: {
+        taxDeclarationTvaId: declaration.id,
+        evenementSourceId,
+      },
+    });
+
+    if (!existingLine) {
+      await (this.prisma as any).taxDeclarationTvaLigne.create({
+        data: {
+          taxDeclarationTvaId: declaration.id,
+          nature: 'REGULARISATION_AVOIR',
+          tauxApplique: 18,
+          baseHorsTaxe: document.totalHt || 0,
+          montantTva: document.totalTax || 0,
+          evenementSourceId,
+        },
+      });
+
+      await this.recalculerDeclarationTva(declaration.id);
+
+      await (this.prisma as any).taxEvenementSource.update({
+        where: { id: evenementSourceId },
+        data: { statutTraitement: 'INTEGRE_DECLARATION' },
+      });
+    }
+  }
+
+  /**
    * Recalcul automatique des totaux de la déclaration de TVA
    */
   private async recalculerDeclarationTva(declarationId: string) {
@@ -356,6 +563,8 @@ export class EvenementsFiscauxService implements OnModuleInit {
     for (const ligne of dec.lignes || []) {
       if (ligne.nature === 'VENTE_TAXABLE') {
         tvaCollectee += ligne.montantTva;
+      } else if (ligne.nature === 'REGULARISATION_AVOIR' || ligne.nature === 'AVOIR_VENTE') {
+        tvaCollectee += ligne.montantTva; // Montant négatif réduisant la TVA collectée
       } else if (
         ligne.nature === 'ACHAT_DEDUCTIBLE' ||
         ligne.nature === 'NOTE_FRAIS_DEDUCTIBLE' ||
@@ -365,7 +574,9 @@ export class EvenementsFiscauxService implements OnModuleInit {
       }
     }
 
-    const tvaNetteDue = tvaCollectee - tvaDeductible - (dec.creditTvaAnterieur || 0);
+    tvaCollectee = Math.round(tvaCollectee * 100) / 100;
+    tvaDeductible = Math.round(tvaDeductible * 100) / 100;
+    const tvaNetteDue = Math.round((tvaCollectee - tvaDeductible - (dec.creditTvaAnterieur || 0)) * 100) / 100;
 
     await (this.prisma as any).taxDeclarationTva.update({
       where: { id: declarationId },
@@ -378,10 +589,10 @@ export class EvenementsFiscauxService implements OnModuleInit {
   }
 
   /**
-   * Capture d'un événement opérationnel porteur d'impact fiscal (M2, M4 ou M5)
+   * Capture d'un événement opérationnel porteur d'impact fiscal (M1, M2, M4 ou M5)
    */
   async capturerEvenement(data: {
-    moduleSource: 'M2_GESTION_COMMERCIALE' | 'M4_RH_PAIE' | 'M5_NOTES_FRAIS';
+    moduleSource: string;
     typeEvenement: string;
     referenceObjetSource: string;
     taxContribuableId: string;
@@ -413,3 +624,4 @@ export class EvenementsFiscauxService implements OnModuleInit {
     });
   }
 }
+

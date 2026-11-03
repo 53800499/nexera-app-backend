@@ -107,7 +107,24 @@ describe('MailDeliveryService', () => {
         ],
       });
 
-      expect(result).toEqual({ sent: true });
+      expect(result).toMatchObject({ sent: true });
+    });
+
+    it('verifyConnection() verifies SMTP transport', async () => {
+      const res = await service.verifyConnection();
+      expect(res.ok).toBe(true);
+      expect(res.driver).toBe('smtp');
+    });
+
+    it('sendTestEmail() delivers test email', async () => {
+      const res = await service.sendTestEmail('test@example.com');
+      expect(res.sent).toBe(true);
+      expect(mockSendMail).toHaveBeenCalledWith(
+        expect.objectContaining({
+          to: 'test@example.com',
+          subject: expect.stringContaining('Test'),
+        }),
+      );
     });
   });
 });
