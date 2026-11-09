@@ -268,6 +268,13 @@ export class AuthService {
       throw new UnauthorizedException(AuthMessages.ACCOUNT_DISABLED);
     }
 
+    if (user.tenant && (user.tenant as any).status === 'SUSPENDED') {
+      const tenantName = (user.tenant as any).name || 'votre organisation';
+      throw new UnauthorizedException(
+        `L'accès pour l'entreprise « ${tenantName} » est temporairement suspendu. Veuillez contacter l'administrateur ou le support Nexera.`,
+      );
+    }
+
     const isPasswordValid = await bcrypt.compare(password, user.password);
     if (!isPasswordValid) {
       throw new UnauthorizedException(AuthMessages.INVALID_CREDENTIALS);
@@ -276,8 +283,18 @@ export class AuthService {
     return user;
   }
 
-  async login(dto: LoginDto) {
+  async login(dto: LoginDto, ipAddress?: string) {
     const user = await this.validateUser(dto);
+    const now = new Date();
+    await this.prisma.user
+      .update({
+        where: { id: user.id },
+        data: {
+          lastLoginAt: now,
+          lastLoginIp: ipAddress || '127.0.0.1',
+        },
+      })
+      .catch(() => {});
     return this.generateTokens(user);
   }
 
@@ -306,6 +323,12 @@ export class AuthService {
       throw new UnauthorizedException(AuthMessages.SESSION_EXPIRED);
     }
 
+    if (user.tenant && (user.tenant as any).status === 'SUSPENDED') {
+      throw new UnauthorizedException(
+        `L'accès pour votre entreprise a été suspendu. Veuillez vous reconnecter ou contacter le support.`,
+      );
+    }
+
     return this.generateTokens(user);
   }
 
@@ -315,6 +338,7 @@ export class AuthService {
     email: string;
     firstName: string;
     lastName: string;
+    isSuperAdmin?: boolean;
     tenant?: { type: TenantType };
     roles?: Array<{
       role: {
@@ -333,6 +357,9 @@ export class AuthService {
     ];
 
     const tenantType = user.tenant?.type ?? TenantType.company;
+    const isSuperAdmin = Boolean(
+      user.isSuperAdmin || roles.some((r) => ['SUPER_ADMIN', 'SUPERADMIN', 'ADMIN'].includes(r.toUpperCase())),
+    );
 
     const payload: JwtPayload = {
       sub: user.id,
@@ -341,6 +368,7 @@ export class AuthService {
       email: user.email,
       roles,
       permissions,
+      isSuperAdmin,
     };
 
     const access_token = this.jwt.sign(payload, {
@@ -365,6 +393,7 @@ export class AuthService {
         tenantType,
         roles,
         permissions,
+        isSuperAdmin,
       },
     };
   }

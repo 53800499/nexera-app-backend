@@ -8,6 +8,7 @@ import { PrismaService } from '../../../infrastructure/database/prisma.service';
 import {
   CreateCompteAuxiliaireDto,
   CreateCompteDto,
+  ImportPlanComptableDto,
   UpdateCompteDto,
 } from '../dto/compta.dto';
 
@@ -328,6 +329,115 @@ export class PlanComptableService {
       actif: created.statut === 'ACTIF',
       compteCollectifNumero: created.compteCollectif?.numeroCompte,
       compteCollectifIntitule: created.compteCollectif?.libelle,
+    };
+  }
+
+  // ---------------- IMPORT EN MASSE DU PLAN COMPTABLE (EXCEL / CSV) ----------------
+
+  async importPlanComptable(tenantId: string, dto: ImportPlanComptableDto, userId: string) {
+    if (!dto.comptes || !Array.isArray(dto.comptes) || dto.comptes.length === 0) {
+      throw new BadRequestException('Aucune ligne de compte fournie pour l’importation.');
+    }
+
+    if (dto.comptes.length > 3000) {
+      throw new BadRequestException('Le fichier dépasse la limite autorisée de 3 000 comptes par import.');
+    }
+
+    const ecraser = dto.ecraserExistant !== false;
+    let nbCrees = 0;
+    let nbMisAJour = 0;
+    let nbIgnores = 0;
+    const erreurs: Array<{ ligne: number; numero: string; message: string }> = [];
+
+    // Récupérer tous les comptes existants du tenant pour un traitement en mémoire ultra-rapide
+    const comptesExistants = await (this.prisma as any).comptaCompte.findMany({
+      where: { tenantId },
+      select: { id: true, numeroCompte: true, libelle: true, statut: true, mouvemente: true },
+    });
+    const mapExistants = new Map<string, any>(
+      comptesExistants.map((c: any) => [c.numeroCompte, c]),
+    );
+
+    for (let i = 0; i < dto.comptes.length; i++) {
+      const ligneIndex = i + 1;
+      const raw = dto.comptes[i];
+      const rawNumero = (raw.numeroCompte || raw.numero || '').toString().trim();
+      const numeroCompte = rawNumero.replace(/[\s.-]/g, '');
+      const libelle = (raw.libelle || raw.intitule || '').toString().trim();
+
+      if (!numeroCompte) {
+        erreurs.push({ ligne: ligneIndex, numero: '', message: 'Numéro de compte manquant ou vide.' });
+        continue;
+      }
+
+      if (numeroCompte.length < 2) {
+        erreurs.push({ ligne: ligneIndex, numero: numeroCompte, message: 'Le numéro de compte doit comporter au moins 2 caractères.' });
+        continue;
+      }
+
+      const premierCaractere = parseInt(numeroCompte.charAt(0), 10);
+      const classe = raw.classe || (!isNaN(premierCaractere) && premierCaractere >= 1 && premierCaractere <= 9 ? premierCaractere : 1);
+
+      // Règle EF-002 AUDCIF : Seule la classe 4 peut comporter des caractères alphanumériques
+      if (classe !== 4 && !/^\d+$/.test(numeroCompte)) {
+        erreurs.push({
+          ligne: ligneIndex,
+          numero: numeroCompte,
+          message: 'Seuls les comptes de classe 4 peuvent comporter des lettres ou caractères alphanumériques (Règle EF-002 AUDCIF).',
+        });
+        continue;
+      }
+
+      if (!libelle) {
+        erreurs.push({ ligne: ligneIndex, numero: numeroCompte, message: 'L’intitulé / libellé du compte est obligatoire.' });
+        continue;
+      }
+
+      const statut = raw.actif === false ? 'DESACTIVE' : 'ACTIF';
+      const existant = mapExistants.get(numeroCompte);
+
+      if (existant) {
+        if (ecraser) {
+          await (this.prisma as any).comptaCompte.update({
+            where: { id: existant.id },
+            data: {
+              libelle,
+              statut: existant.mouvemente && statut === 'DESACTIVE' ? existant.statut : statut,
+              modifiePar: userId,
+            },
+          });
+          mapExistants.set(numeroCompte, { ...existant, libelle, statut });
+          nbMisAJour++;
+        } else {
+          nbIgnores++;
+        }
+      } else {
+        const nouveau = await (this.prisma as any).comptaCompte.create({
+          data: {
+            tenantId,
+            numeroCompte,
+            libelle,
+            classe,
+            statut,
+            mouvemente: false,
+            creePar: userId,
+          },
+        });
+        mapExistants.set(numeroCompte, nouveau);
+        nbCrees++;
+      }
+    }
+
+    return {
+      success: true,
+      totalTraite: dto.comptes.length,
+      crees: nbCrees,
+      misAJour: nbMisAJour,
+      ignores: nbIgnores,
+      erreurs,
+      message: `${nbCrees} compte(s) créé(s), ${nbMisAJour} mis à jour, ${nbIgnores} ignoré(s)${
+        erreurs.length > 0 ? `, ${erreurs.length} ligne(s) en erreur` : ''
+      }.`,
     };
   }
 }

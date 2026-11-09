@@ -177,6 +177,10 @@ model User {
   isActive     Boolean @default(true)
   isSuperAdmin Boolean @default(false)
 
+  lastLoginAt      DateTime? @map("last_login_at")
+  lastLoginIp      String?   @map("last_login_ip")
+  twoFactorEnabled Boolean   @default(false) @map("two_factor_enabled")
+
   refreshToken String? @map("refresh_token")
 
   createdAt DateTime @default(now())
@@ -265,6 +269,14 @@ model Tenant {
   id   String     @id @default(uuid())
   name String
   type TenantType @default(company)
+  status            String     @default("ACTIVE")
+  statusReason      String?    @map("status_reason")
+  suspendedAt       DateTime?  @map("suspended_at")
+  suspendedBy       String?    @map("suspended_by")
+
+  maxUsers          Int?       @default(10) @map("max_users")
+  storageLimitGb    Int?       @default(5)  @map("storage_limit_gb")
+  activeModules     String[]   @default(["COMPTA", "FACTURATION", "CRM", "RH", "IMMO", "TRESORERIE"]) @map("active_modules")
 
   /// Code d'invitation partagé aux entreprises (type cabinet uniquement).
   cabinetInviteCode String? @unique @map("cabinet_invite_code")
@@ -6753,4 +6765,88 @@ model ComptaJournalAudit {
   @@index([tenantId, categorie, horodatage])
   @@index([entiteType, entiteId])
   @@map("compta_journal_audit")
+}
+
+// ============================================================================
+// 14. NEXERA PLATFORM CONTROL PLANE (SUPER ADMIN)
+// ============================================================================
+
+model PlatformAuditLog {
+  id          String   @id @default(uuid())
+  adminUserId String?  @map("admin_user_id")
+  adminEmail  String?  @map("admin_email")
+  action      String   @map("action")
+  targetEntity String  @map("target_entity")
+  targetId    String?  @map("target_id")
+  targetLabel String?  @map("target_label")
+  details     Json?    @map("details")
+  ipAddress   String?  @map("ip_address")
+  userAgent   String?  @map("user_agent")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@index([action, createdAt])
+  @@index([targetEntity, targetId])
+  @@map("platform_audit_logs")
+}
+
+model PlatformAssistanceSession {
+  id              String    @id @default(uuid())
+  adminUserId     String    @map("admin_user_id")
+  adminEmail      String    @map("admin_email")
+  tenantId        String    @map("tenant_id")
+  tenantName      String?   @map("tenant_name")
+  ticketRef       String    @map("ticket_ref")
+  justification   String    @map("justification")
+  durationMinutes Int       @default(30) @map("duration_minutes")
+  status          String    @default("ACTIVE") @map("status")
+  startedAt       DateTime  @default(now()) @map("started_at")
+  expiresAt       DateTime  @map("expires_at")
+  revokedAt       DateTime? @map("revoked_at")
+  revokedBy       String?   @map("revoked_by")
+  sessionToken    String?   @map("session_token")
+  ipAddress       String?   @map("ip_address")
+
+  @@index([tenantId, status])
+  @@map("platform_assistance_sessions")
+}
+
+model PlatformIncident {
+  id              String    @id @default(uuid())
+  title           String    @map("title")
+  severity        String    @default("MEDIUM") @map("severity")
+  status          String    @default("INVESTIGATING") @map("status")
+  impactedService String    @map("impacted_service")
+  description     String    @map("description")
+  resolvedAt      DateTime? @map("resolved_at")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  @@map("platform_incidents")
+}
+
+model PlatformBroadcast {
+  id          String    @id @default(uuid())
+  title       String    @map("title")
+  message     String    @map("message")
+  level       String    @default("INFO") @map("level") // INFO, WARNING, CRITICAL
+  isActive    Boolean   @default(true) @map("is_active")
+  actionLabel String?   @map("action_label")
+  actionUrl   String?   @map("action_url")
+  startsAt    DateTime  @default(now()) @map("starts_at")
+  endsAt      DateTime? @map("ends_at")
+  createdBy   String?   @map("created_by")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  @@map("platform_broadcasts")
+}
+
+model PlatformSetting {
+  key         String   @id
+  value       String
+  description String?
+  updatedBy   String?  @map("updated_by")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@map("platform_settings")
 }

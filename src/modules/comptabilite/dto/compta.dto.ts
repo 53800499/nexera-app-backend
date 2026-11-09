@@ -84,6 +84,54 @@ export class UpdateCompteDto {
   statut?: 'ACTIF' | 'DESACTIVE' | 'ARCHIVE';
 }
 
+export class ImportCompteLigneDto {
+  @ApiPropertyOptional({ example: '411100' })
+  @IsOptional()
+  @IsString()
+  numeroCompte?: string;
+
+  @ApiPropertyOptional({ example: '411100' })
+  @IsOptional()
+  @IsString()
+  numero?: string;
+
+  @ApiPropertyOptional({ example: 'Clients locaux' })
+  @IsOptional()
+  @IsString()
+  libelle?: string;
+
+  @ApiPropertyOptional({ example: 'Clients locaux' })
+  @IsOptional()
+  @IsString()
+  intitule?: string;
+
+  @ApiPropertyOptional({ example: 4 })
+  @IsOptional()
+  @IsInt()
+  classe?: number;
+
+  @ApiPropertyOptional({ example: true })
+  @IsOptional()
+  @IsBoolean()
+  actif?: boolean;
+}
+
+export class ImportPlanComptableDto {
+  @ApiProperty({ type: [ImportCompteLigneDto] })
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => ImportCompteLigneDto)
+  comptes!: ImportCompteLigneDto[];
+
+  @ApiPropertyOptional({
+    default: true,
+    description: 'Si true, met à jour le libellé si le compte existe déjà. Si false, ignore les doublons.',
+  })
+  @IsOptional()
+  @IsBoolean()
+  ecraserExistant?: boolean;
+}
+
 export class CreateCompteAuxiliaireDto {
   @ApiProperty({ description: 'ID du compte collectif (ex: 411, 401)' })
   @IsString()

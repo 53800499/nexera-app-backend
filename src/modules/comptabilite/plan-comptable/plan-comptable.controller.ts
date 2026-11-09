@@ -18,6 +18,7 @@ import { PlanComptableService } from './plan-comptable.service';
 import {
   CreateCompteAuxiliaireDto,
   CreateCompteDto,
+  ImportPlanComptableDto,
   UpdateCompteDto,
 } from '../dto/compta.dto';
 
@@ -137,6 +138,18 @@ export class PlanComptableController {
     const tenantId = req.user?.tenantId || req.tenantId;
     const userId = req.user?.id || req.user?.userId || req.user?.sub;
     return this.service.createCompte(tenantId, dto, userId);
+  }
+
+  @Post('import')
+  @Permissions('compta.write')
+  @ApiOperation({ summary: 'Importer en masse un plan comptable (Excel / CSV)' })
+  async importPlanComptable(
+    @Request() req: any,
+    @Body() dto: ImportPlanComptableDto,
+  ) {
+    const tenantId = req.user?.tenantId || req.tenantId;
+    const userId = req.user?.id || req.user?.userId || req.user?.sub;
+    return this.service.importPlanComptable(tenantId, dto, userId);
   }
 
   @Get('comptes/:id')

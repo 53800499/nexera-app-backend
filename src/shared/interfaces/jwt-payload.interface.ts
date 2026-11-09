@@ -7,4 +7,8 @@ export interface JwtPayload {
 
   roles: string[];
   permissions: string[];
+  isSuperAdmin?: boolean;
+  isAssistanceSession?: boolean;
+  ticketRef?: string;
+  justification?: string;
 }

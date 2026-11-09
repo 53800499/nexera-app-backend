@@ -26,6 +26,25 @@ export class PermissionsGuard implements CanActivate {
     );
     if (allowAuthenticated) return true;
 
+    const request = context.switchToHttp().getRequest();
+    const user = request.user;
+
+    const userRoles: string[] = Array.isArray(user?.roles)
+      ? user.roles
+      : user?.role
+        ? [user.role]
+        : [];
+
+    // Super Admins ont un accès total et ne sont pas restreints par les métadonnées de permissions métier
+    if (
+      user?.isSuperAdmin ||
+      userRoles.some((r) =>
+        ['SUPER_ADMIN', 'SUPERADMIN', 'PLATFORM_ADMIN'].includes(String(r).toUpperCase()),
+      )
+    ) {
+      return true;
+    }
+
     const permissions = this.reflector.getAllAndOverride<string[]>(
       'permissions',
       [context.getHandler(), context.getClass()],
@@ -37,22 +56,14 @@ export class PermissionsGuard implements CanActivate {
       );
     }
 
-    const request = context.switchToHttp().getRequest();
-    const user = request.user;
     if (!user) {
       throw new ForbiddenException('Utilisateur non authentifié');
     }
 
-    const userRoles: string[] = Array.isArray(user.roles)
-      ? user.roles
-      : user.role
-        ? [user.role]
-        : [];
-
-    // Admins, Dirigeants et CEOs ont un accès complet à l'ensemble des modules entreprise
+    // Admins, Dirigeants et CEOs ont un accès complet
     if (
       userRoles.some((r) =>
-        ['ADMIN', 'CEO', 'SUPER_ADMIN', 'admin', 'dirigeant', 'COMPTABLE', 'comptable', 'CABINET_ADMIN'].includes(r),
+        ['ADMIN', 'CEO', 'admin', 'dirigeant', 'COMPTABLE', 'comptable', 'CABINET_ADMIN'].includes(r),
       )
     ) {
       return true;

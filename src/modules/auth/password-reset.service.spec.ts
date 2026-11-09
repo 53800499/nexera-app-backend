@@ -38,12 +38,12 @@ describe('PasswordResetService', () => {
     );
   });
 
-  it('returns generic message when email is unknown', async () => {
+  it('rejects unknown email with an explicit helpful message', async () => {
     prisma.user.findFirst.mockResolvedValue(null);
 
-    const result = await service.forgotPassword({ email: 'unknown@test.com' });
-
-    expect(result.message).toContain('Si un compte existe');
+    await expect(
+      service.forgotPassword({ email: 'unknown@test.com' }),
+    ).rejects.toThrow("Aucun compte Nexera n'est associé à l'adresse e-mail");
     expect(mail.send).not.toHaveBeenCalled();
   });
 
@@ -57,7 +57,7 @@ describe('PasswordResetService', () => {
 
     const result = await service.forgotPassword({ email: 'john@test.com' });
 
-    expect(result.message).toContain('Si un compte existe');
+    expect(result.message).toContain('Un e-mail de réinitialisation a été envoyé');
     expect(prisma.passwordResetToken.create).toHaveBeenCalled();
     expect(mail.send).toHaveBeenCalled();
   });

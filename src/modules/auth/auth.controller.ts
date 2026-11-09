@@ -68,8 +68,10 @@ export class AuthController {
     unauthorized: `Ex. ${AuthMessages.INVALID_CREDENTIALS} ou ${AuthMessages.ACCOUNT_DISABLED}`,
     includeNotFound: false,
   })
-  async login(@Body() dto: LoginDto) {
-    return this.authService.login(dto);
+  async login(@Body() dto: LoginDto, @Request() req: any) {
+    const rawIp = req?.headers?.['x-forwarded-for'] || req?.socket?.remoteAddress || req?.ip;
+    const ip = typeof rawIp === 'string' ? rawIp.split(',')[0].trim() : '127.0.0.1';
+    return this.authService.login(dto, ip);
   }
 
   @Post('refresh')
